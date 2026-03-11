@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>病例管理系統</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy:#0f2744;--navy2:#1a3a5c;--blue:#1d6fa4;--sky:#3b9edd;--teal:#0d9488;
+    --light:#f0f6fc;--border:#d1e3f0;--text:#0f2744;--muted:#6b8299;
+    --red:#e53e3e;--green:#38a169;--shadow:0 2px 12px rgba(15,39,68,.08);
+    --shadow-lg:0 8px 32px rgba(15,39,68,.14);--radius:10px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--light);color:var(--text);min-height:100vh;}
+  button,input,textarea,select{font-family:inherit;}
+
+  /* Layout */
+  .header{background:linear-gradient(135deg,var(--navy),var(--navy2));padding:0 28px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 16px rgba(0,0,0,.18);position:sticky;top:0;z-index:100;}
+  .logo{display:flex;align-items:center;gap:10px;color:#fff;cursor:pointer;}
+  .logo-text{font-size:17px;font-weight:900;letter-spacing:1px;}
+  .logo-sub{font-size:11px;color:#7eb3d8;font-weight:400;margin-left:4px;}
+  .hactions{display:flex;gap:8px;}
+  .main{padding:28px;max-width:1200px;margin:0 auto;}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .btn-primary{background:var(--sky);color:#fff;}
+  .btn-primary:hover{background:var(--blue);transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,158,221,.35);}
+  .btn-ghost{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);}
+  .btn-ghost:hover{background:rgba(255,255,255,.18);}
+  .btn-outline{background:#fff;color:var(--blue);border:1.5px solid var(--border);}
+  .btn-outline:hover{border-color:var(--sky);background:#f0f8ff;}
+  .btn-danger{background:#fff5f5;color:var(--red);border:1.5px solid #fca5a5;}
+  .btn-danger:hover{background:#fee2e2;}
+  .btn-success{background:var(--teal);color:#fff;}
+  .btn-success:hover{background:#0f7a70;}
+  .btn-sm{padding:5px 12px;font-size:12px;}
+  .btn-icon{padding:7px;border-radius:7px;background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;}
+  .btn-icon:hover{background:#f0f6fc;color:var(--blue);}
+
+  /* Cards */
+  .card{background:#fff;border-radius:14px;border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden;}
+  .card-header{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+  .card-body{padding:22px;}
+
+  /* Projects */
+  .page-title{font-size:22px;font-weight:900;color:var(--navy);margin-bottom:6px;}
+  .page-sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
+  .project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;}
+  .project-card{background:#fff;border-radius:14px;border:1px solid var(--border);padding:22px;cursor:pointer;transition:all .18s;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+  .project-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--sky),var(--teal));}
+  .project-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg);border-color:var(--sky);}
+  .project-card-name{font-size:16px;font-weight:800;color:var(--navy);margin-bottom:6px;}
+  .project-card-desc{font-size:13px;color:var(--muted);margin-bottom:16px;min-height:20px;}
+  .project-card-meta{display:flex;gap:10px;flex-wrap:wrap;}
+  .mbadge{font-size:12px;color:var(--blue);background:#e8f4fd;padding:3px 10px;border-radius:20px;font-weight:600;}
+  .project-new{background:#f8fbff;border:2px dashed var(--border);border-radius:14px;padding:22px;cursor:pointer;transition:all .18s;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:140px;gap:10px;color:var(--muted);}
+  .project-new:hover{border-color:var(--sky);color:var(--blue);background:#f0f8ff;}
+
+  /* Modal */
+  .overlay{position:fixed;inset:0;background:rgba(10,25,50,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s;}
+  .modal{background:#fff;border-radius:16px;width:100%;max-width:500px;box-shadow:var(--shadow-lg);animation:slideUp .18s;}
+  .modal-hd{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .modal-title{font-size:16px;font-weight:800;color:var(--navy);}
+  .modal-bd{padding:22px 24px;}
+  .modal-ft{padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+  /* Form fields */
+  .fg{margin-bottom:18px;}
+  .flabel{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;display:block;text-transform:uppercase;}
+  .flabel.req::after{content:' *';color:var(--red);}
+  .finput,.fselect,.ftextarea{width:100%;padding:9px 13px;border-radius:8px;border:1.5px solid var(--border);background:#f8fbff;font-size:14px;color:var(--text);outline:none;transition:border .18s,box-shadow .18s;}
+  .finput:focus,.fselect:focus,.ftextarea:focus{border-color:var(--sky);box-shadow:0 0 0 3px rgba(59,158,221,.12);background:#fff;}
+  .ftextarea{resize:vertical;min-height:80px;}
+  .frow{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+
+  /* Tabs */
+  .tabs{display:flex;gap:4px;background:#f0f6fc;border-radius:10px;padding:4px;margin-bottom:22px;}
+  .tab{flex:1;padding:8px 16px;border-radius:8px;border:none;background:none;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;}
+  .tab.active{background:#fff;color:var(--navy);box-shadow:0 1px 4px rgba(0,0,0,.1);}
+
+  /* Project hero */
+  .proj-hero{background:linear-gradient(135deg,var(--navy),var(--blue));border-radius:14px;padding:22px 28px;margin-bottom:22px;color:#fff;display:flex;justify-content:space-between;align-items:center;}
+  .proj-hero-name{font-size:22px;font-weight:900;}
+  .proj-hero-desc{font-size:13px;color:#93c5fd;margin-top:4px;}
+  .stat-num{font-size:26px;font-weight:900;font-family:'DM Mono',monospace;}
+  .stat-lbl{font-size:11px;color:#93c5fd;}
+
+  /* Table */
+  .tbar{display:flex;gap:10px;margin-bottom:16px;align-items:center;}
+  .sw{position:relative;flex:1;}
+  .sw input{padding-left:36px;}
+  .si{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
+  .twrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead tr{background:#f8fbff;}
+  th{padding:11px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;border-bottom:2px solid var(--border);white-space:nowrap;}
+  td{padding:12px 14px;border-bottom:1px solid #f0f6fc;vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr{cursor:pointer;transition:background .12s;}
+  tbody tr:hover{background:#f0f8ff;}
+  .tdname{font-weight:700;color:var(--navy);}
+  .tdmuted{color:var(--muted);}
+  .empty{text-align:center;padding:60px 20px;color:var(--muted);}
+  .empty-icon{font-size:40px;margin-bottom:12px;}
+  .empty-title{font-size:15px;font-weight:700;margin-bottom:6px;}
+
+  /* Case form */
+  .case-hero{background:linear-gradient(135deg,var(--navy),var(--sky));border-radius:14px;padding:20px 26px;margin-bottom:24px;color:#fff;}
+  .case-hero-id{font-size:11px;opacity:.65;font-family:'DM Mono',monospace;letter-spacing:1px;}
+  .case-hero-name{font-size:24px;font-weight:900;margin:4px 0;}
+  .case-hero-meta{font-size:13px;opacity:.8;}
+  .fsection{margin-bottom:20px;border-radius:12px;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow);}
+  .fsection-hd{padding:11px 18px;font-size:12px;font-weight:800;letter-spacing:1px;color:#fff;}
+  .fsection-bd{padding:20px 18px 16px;background:#fff;}
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px 22px;}
+
+  /* Save bar */
+  .savebar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,39,68,.96);backdrop-filter:blur(8px);padding:12px 28px;display:flex;justify-content:space-between;align-items:center;z-index:90;transform:translateY(100%);transition:transform .25s;}
+  .savebar.on{transform:translateY(0);}
+  .savebar-msg{color:#93c5fd;font-size:13px;}
+
+  /* Breadcrumb */
+  .bc{display:flex;align-items:center;gap:6px;margin-bottom:18px;font-size:13px;color:var(--muted);}
+  .bc a{color:var(--blue);cursor:pointer;font-weight:600;}
+  .bc a:hover{text-decoration:underline;}
+  .bc-sep{color:#ccd8e5;}
+
+  /* Field builder */
+  .fi{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fbff;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;}
+  .fi-info{flex:1;}
+  .fi-label{font-size:13px;font-weight:700;color:var(--navy);}
+  .fi-type{font-size:11px;color:var(--muted);}
+  .tchip{padding:5px 12px;border-radius:20px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .12s;}
+  .tchip:hover,.tchip.sel{border-color:var(--sky);color:var(--blue);background:#f0f8ff;}
+  .cdot{width:22px;height:22px;border-radius:50%;cursor:pointer;transition:transform .12s;border:2px solid transparent;}
+  .cdot:hover,.cdot.act{transform:scale(1.2);border-color:#fff;box-shadow:0 0 0 2px var(--navy);}
+
+  /* Toast */
+  .toast{position:fixed;bottom:80px;right:24px;background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:var(--shadow-lg);z-index:300;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;transform:translateY(8px);}
+  .toast.on{opacity:1;transform:translateY(0);}
+
+  @media(max-width:640px){
+    .main{padding:16px;}
+    .frow,.sgrid{grid-template-columns:1fr;}
+    .proj-hero{flex-direction:column;gap:16px;}
+  }
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="logo" onclick="goHome()">
+    <span style="font-size:22px">🏥</span>
+    <span class="logo-text">病例管理系統</span>
+    <span class="logo-sub" id="hbreadcrumb"></span>
+  </div>
+  <div class="hactions" id="hactions"></div>
+</header>
+<main class="main" id="app"></main>
+<div class="savebar" id="savebar">
+  <span class="savebar-msg">⚠️ 有未儲存的變更（或按 ⌘S）</span>
+  <div style="display:flex;gap:10px">
+    <button class="btn btn-ghost btn-sm" onclick="discardChanges()">放棄</button>
+    <button class="btn btn-success btn-sm" onclick="saveCase()">💾 儲存</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── IndexedDB ──────────────────────────────────────────────────────────────
+let db;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open('PatientSys',2);
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains('projects')) d.createObjectStore('projects',{keyPath:'id'});
+      if(!d.objectStoreNames.contains('cases')){
+        const s=d.createObjectStore('cases',{keyPath:'id'});
+        s.createIndex('pid','projectId',{unique:false});
+      }
+    };
+    r.onsuccess=e=>{db=e.target.result;res();};
+    r.onerror=rej;
+  });
+}
+const tx=(s,m='readonly')=>db.transaction(s,m).objectStore(s);
+const dbGet=(s,k)=>new Promise((r,e)=>{const q=tx(s).get(k);q.onsuccess=()=>r(q.result);q.onerror=e;});
+const dbAll=(s)=>new Promise((r,e)=>{const q=tx(s).getAll();q.onsuccess=()=>r(q.result);q.onerror=e;});
+const dbIdx=(s,i,v)=>new Promise((r,e)=>{const q=tx(s).index(i).getAll(v);q.onsuccess=()=>r(q.result);q.onerror=e;});
+const dbPut=(s,o)=>new Promise((r,e)=>{const q=tx(s,'readwrite').put(o);q.onsuccess=()=>r();q.onerror=e;});
+const dbDel=(s,k)=>new Promise((r,e)=>{const q=tx(s,'readwrite').delete(k);q.onsuccess=()=>r();q.onerror=e;});
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+
+// ── State ──────────────────────────────────────────────────────────────────
+let VIEW='projects', PID=null, CID=null;
+let formData={}, formOrig={}, dirty=false;
+let editFields=[];
+
+// ── Section colors ─────────────────────────────────────────────────────────
+const COLORS=['#1d6fa4','#0d9488','#7c3aed','#be185d','#b45309','#1e40af','#0f766e','#6d28d9'];
+const TYPE_NAMES={text:'文字',number:'數字',date:'日期',textarea:'長文字',select:'下拉選單'};
+
+// ── Default fields ─────────────────────────────────────────────────────────
+const DEFAULT_FIELDS=[
+  {id:'f1',section:'基本資料',sectionColor:'#1d6fa4',label:'姓名',type:'text',required:true},
+  {id:'f2',section:'基本資料',sectionColor:'#1d6fa4',label:'病歷號',type:'text'},
+  {id:'f3',section:'基本資料',sectionColor:'#1d6fa4',label:'生日',type:'date'},
+  {id:'f4',section:'基本資料',sectionColor:'#1d6fa4',label:'性別',type:'select',options:'男,女,其他'},
+  {id:'f5',section:'基本資料',sectionColor:'#1d6fa4',label:'電話',type:'text'},
+  {id:'f6',section:'就診紀錄',sectionColor:'#0d9488',label:'就診日期',type:'date'},
+  {id:'f7',section:'就診紀錄',sectionColor:'#0d9488',label:'主訴',type:'textarea'},
+  {id:'f8',section:'就診紀錄',sectionColor:'#0d9488',label:'診斷',type:'textarea'},
+  {id:'f9',section:'就診紀錄',sectionColor:'#0d9488',label:'用藥',type:'textarea'},
+  {id:'f10',section:'生理數據',sectionColor:'#7c3aed',label:'血壓',type:'text'},
+  {id:'f11',section:'生理數據',sectionColor:'#7c3aed',label:'心跳',type:'text'},
+  {id:'f12',section:'生理數據',sectionColor:'#7c3aed',label:'體重(kg)',type:'number'},
+  {id:'f13',section:'生理數據',sectionColor:'#7c3aed',label:'身高(cm)',type:'number'},
+  {id:'f14',section:'問卷',sectionColor:'#be185d',label:'疼痛指數(0-10)',type:'select',options:'0,1,2,3,4,5,6,7,8,9,10'},
+  {id:'f15',section:'問卷',sectionColor:'#be185d',label:'睡眠品質',type:'select',options:'良好,普通,不佳'},
+  {id:'f16',section:'問卷',sectionColor:'#be185d',label:'情緒狀態',type:'select',options:'穩定,輕微焦慮,明顯焦慮,憂鬱'},
+  {id:'f17',section:'備註',sectionColor:'#b45309',label:'備註',type:'textarea'},
+];
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg,dur=2200){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('on');
+  setTimeout(()=>el.classList.remove('on'),dur);
+}
+
+// ── Nav ────────────────────────────────────────────────────────────────────
+function goHome(){if(dirty&&!confirm('有未儲存的變更，確定離開？'))return;dirty=false;VIEW='projects';PID=null;CID=null;render();}
+function goProject(pid){if(dirty&&!confirm('有未儲存的變更，確定離開？'))return;dirty=false;PID=pid;VIEW='project';CID=null;render();}
+function goCase(cid,pid){PID=pid;CID=cid;VIEW='case';render();}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+async function render(){
+  document.getElementById('savebar').classList.toggle('on',dirty);
+  if(VIEW==='projects') await vProjects();
+  else if(VIEW==='project') await vProject();
+  else if(VIEW==='case') await vCase();
+  else if(VIEW==='settings') await vSettings();
+}
+
+// ── Projects ───────────────────────────────────────────────────────────────
+async function vProjects(){
+  const projs=await dbAll('projects');
+  document.getElementById('hbreadcrumb').textContent='';
+  document.getElementById('hactions').innerHTML=`
+    <button class="btn btn-ghost" onclick="showSyncModal()">🔄 匯出／匯入</button>
+    <button class="btn btn-ghost" onclick="exportAll()">📤 全部匯出CSV</button>
+    <button class="btn btn-primary" onclick="showProjModal(null)">＋ 新增 Project</button>`;
+  const app=document.getElementById('app');
+  app.innerHTML=`
+    <div class="page-title">所有 Projects</div>
+    <div class="page-sub">每個 Project 獨立管理病例，可自訂問卷欄位</div>
+    <div class="project-grid">
+      ${projs.map(p=>`
+        <div class="project-card" onclick="goProject('${p.id}')">
+          <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+            <button class="btn-icon" onclick="event.stopPropagation();showProjModal('${p.id}')" title="編輯">✏️</button>
+            <button class="btn-icon" onclick="event.stopPropagation();delProject('${p.id}')" title="刪除">🗑️</button>
+          </div>
+          <div class="project-card-name">${escH(p.name)}</div>
+          <div class="project-card-desc">${escH(p.description||'（無描述）')}</div>
+          <div class="project-card-meta">
+            <span class="mbadge" id="cc-${p.id}">…</span>
+            <span class="mbadge" style="background:#f0fdf4;color:#16a34a">${(p.fields||DEFAULT_FIELDS).length} 欄位</span>
+          </div>
+        </div>`).join('')}
+      <div class="project-new" onclick="showProjModal(null)">
+        <div style="font-size:28px">＋</div>
+        <div style="font-size:14px;font-weight:700">建立新 Project</div>
+      </div>
+    </div>`;
+  for(const p of projs){
+    const cs=await dbIdx('cases','pid',p.id);
+    const el=document.getElementById('cc-'+p.id);
+    if(el) el.textContent=cs.length+' 筆病例';
+  }
+}
+
+// ── Project (list + table) ─────────────────────────────────────────────────
+async function vProject(){
+  const p=await dbGet('projects',PID);
+  if(!p){goHome();return;}
+  const cases=await dbIdx('cases','pid',PID);
+  const fields=p.fields||DEFAULT_FIELDS;
+  document.getElementById('hbreadcrumb').textContent='/ '+p.name;
+  document.getElementById('hactions').innerHTML=`
+    <button class="btn btn-ghost" onclick="showSyncModal('${p.id}')">🔄 匯出／匯入</button>
+    <button class="btn btn-ghost" onclick="exportCSV('${p.id}')">📤 匯出 CSV</button>
+    <button class="btn btn-ghost" onclick="vSettings('${p.id}')">⚙️ 欄位設定</button>
+    <button class="btn btn-primary" onclick="newCase('${p.id}')">＋ 新增病例</button>`;
+  const nameF=fields.find(f=>f.required)||fields[0];
+  const dateF=fields.find(f=>f.type==='date');
+  const diagF=fields.find(f=>f.label.includes('診斷'));
+  const listCols=[nameF,dateF,diagF].filter(Boolean).slice(0,3);
+  document.getElementById('app').innerHTML=`
+    <div class="bc"><a onclick="goHome()">首頁</a><span class="bc-sep">›</span><span>${escH(p.name)}</span></div>
+    <div class="proj-hero">
+      <div>
+        <div class="proj-hero-name">${escH(p.name)}</div>
+        <div class="proj-hero-desc">${escH(p.description||'點右上角「欄位設定」可自訂問卷欄位')}</div>
+      </div>
+      <div style="display:flex;gap:24px;text-align:right">
+        <div><div class="stat-num">${cases.length}</div><div class="stat-lbl">筆病例</div></div>
+        <div><div class="stat-num">${fields.length}</div><div class="stat-lbl">個欄位</div></div>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" id="t-list" onclick="switchTab('list')">📋 病例列表</button>
+      <button class="tab" id="t-table" onclick="switchTab('table')">📊 總覽表</button>
+    </div>
+    <div id="tc-list">${buildList(cases,fields,listCols,p)}</div>
+    <div id="tc-table" style="display:none">${buildTable(cases,fields)}</div>`;
+}
+
+function buildList(cases,fields,cols,p){
+  if(!cases.length) return `<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">尚無病例資料</div><div style="font-size:13px">點選右上角「新增病例」開始建立</div></div>`;
+  return `
+    <div class="tbar">
+      <div class="sw"><span class="si">🔍</span><input class="finput" id="search" placeholder="搜尋病例..." oninput="filterRows()"></div>
+    </div>
+    <div class="twrap"><table>
+      <thead><tr><th>#</th>${cols.map(f=>`<th>${escH(f.label)}</th>`).join('')}<th>建立日期</th><th></th></tr></thead>
+      <tbody id="tbody">
+        ${cases.map((c,i)=>`
+          <tr onclick="goCase('${c.id}','${p.id}')">
+            <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${String(i+1).padStart(3,'0')}</td>
+            ${cols.map(f=>`<td class="${f.required?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
+            <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
+            <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function buildTable(cases,fields){
+  if(!cases.length) return `<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">尚無資料</div></div>`;
+  return `
+    <div class="twrap"><table>
+      <thead><tr><th>#</th>${fields.map(f=>`<th>${escH(f.label)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${cases.map((c,i)=>`
+          <tr onclick="goCase('${c.id}','${PID}')">
+            <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${String(i+1).padStart(3,'0')}</td>
+            ${fields.map(f=>`<td>${escH(c.data[f.id]||'')}</td>`).join('')}
+          </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">點擊任一列可開啟完整表單編輯</div>`;
+}
+
+function switchTab(t){
+  document.getElementById('t-list').classList.toggle('active',t==='list');
+  document.getElementById('t-table').classList.toggle('active',t==='table');
+  document.getElementById('tc-list').style.display=t==='list'?'':'none';
+  document.getElementById('tc-table').style.display=t==='table'?'':'none';
+}
+function filterRows(){
+  const q=(document.getElementById('search')?.value||'').toLowerCase();
+  document.querySelectorAll('#tbody tr').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'':'none');
+}
+
+// ── Case form ──────────────────────────────────────────────────────────────
+async function vCase(){
+  const p=await dbGet('projects',PID);
+  const c=await dbGet('cases',CID);
+  if(!p||!c){goProject(PID);return;}
+  const fields=p.fields||DEFAULT_FIELDS;
+  formData={...c.data};formOrig={...c.data};dirty=false;
+  const nameF=fields.find(f=>f.required)||fields[0];
+  document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 病例';
+  document.getElementById('hactions').innerHTML=`
+    <button class="btn btn-danger btn-sm" onclick="delCase('${c.id}')">🗑️ 刪除</button>
+    <button class="btn btn-success" onclick="saveCase()">💾 儲存</button>`;
+  // Group by section
+  const secs={};
+  fields.forEach(f=>{(secs[f.section]??={color:f.sectionColor||'#1d6fa4',fields:[]}).fields.push(f);});
+  document.getElementById('app').innerHTML=`
+    <div class="bc">
+      <a onclick="goHome()">首頁</a><span class="bc-sep">›</span>
+      <a onclick="goProject('${p.id}')">${escH(p.name)}</a><span class="bc-sep">›</span>
+      <span>病例 ${c.caseNum||'001'}</span>
+    </div>
+    <div style="max-width:780px">
+      <div class="case-hero">
+        <div class="case-hero-id">病例 #${c.caseNum||'001'} · ${escH(p.name)}</div>
+        <div class="case-hero-name" id="hero-name">${escH(formData[nameF?.id]||'新病例')}</div>
+        <div class="case-hero-meta">建立於 ${new Date(c.createdAt).toLocaleString('zh-TW')} ${c.updatedAt?'· 最後儲存 '+new Date(c.updatedAt).toLocaleString('zh-TW'):''}</div>
+      </div>
+      ${Object.entries(secs).map(([name,sec])=>`
+        <div class="fsection">
+          <div class="fsection-hd" style="background:${sec.color}">${name}</div>
+          <div class="fsection-bd"><div class="sgrid">
+            ${sec.fields.map(f=>`
+              <div class="fg">
+                <label class="flabel ${f.required?'req':''}">${escH(f.label)}</label>
+                ${fInput(f,formData[f.id]||'')}
+              </div>`).join('')}
+          </div></div>
+        </div>`).join('')}
+      <div style="height:80px"></div>
+    </div>`;
+  // Bind inputs
+  document.getElementById('app').querySelectorAll('[data-fid]').forEach(el=>{
+    el.addEventListener('input',e=>{
+      formData[e.target.dataset.fid]=e.target.value;
+      dirty=true;
+      document.getElementById('savebar').classList.add('on');
+      if(e.target.dataset.fid===nameF?.id){
+        const h=document.getElementById('hero-name');
+        if(h) h.textContent=e.target.value||'新病例';
+      }
+    });
+  });
+}
+
+function fInput(f,v){
+  const a=`data-fid="${f.id}"`;
+  if(f.type==='textarea') return `<textarea class="ftextarea" ${a}>${escH(v)}</textarea>`;
+  if(f.type==='select'){
+    const opts=(f.options||'').split(',').filter(Boolean);
+    return `<select class="fselect" ${a}><option value="">請選擇</option>${opts.map(o=>`<option ${v===o?'selected':''}>${escH(o)}</option>`).join('')}</select>`;
+  }
+  return `<input class="finput" type="${f.type||'text'}" value="${escH(v)}" ${a}>`;
+}
+
+async function saveCase(){
+  const c=await dbGet('cases',CID);
+  c.data={...formData};c.updatedAt=Date.now();
+  await dbPut('cases',c);
+  formOrig={...formData};dirty=false;
+  document.getElementById('savebar').classList.remove('on');
+  toast('✅ 已儲存');
+}
+function discardChanges(){
+  if(!confirm('確定放棄所有變更？'))return;
+  formData={...formOrig};dirty=false;
+  document.getElementById('savebar').classList.remove('on');
+  vCase();
+}
+async function delCase(cid){
+  if(!confirm('確定刪除此病例？此動作無法復原。'))return;
+  await dbDel('cases',cid);dirty=false;toast('🗑️ 已刪除');goProject(PID);
+}
+
+// ── Settings (field builder) ───────────────────────────────────────────────
+async function vSettings(pid){
+  pid=pid||PID;PID=pid;VIEW='settings';
+  const p=await dbGet('projects',pid);
+  editFields=JSON.parse(JSON.stringify(p.fields||DEFAULT_FIELDS));
+  document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
+  document.getElementById('hactions').innerHTML=`
+    <button class="btn btn-outline" onclick="goProject('${pid}')">← 返回</button>
+    <button class="btn btn-success" onclick="saveSettings('${pid}')">💾 儲存設定</button>`;
+  document.getElementById('app').innerHTML=`
+    <div class="bc"><a onclick="goHome()">首頁</a><span class="bc-sep">›</span><a onclick="goProject('${pid}')">${escH(p.name)}</a><span class="bc-sep">›</span><span>欄位設定</span></div>
+    <div style="max-width:720px">
+      <div class="page-title">問卷欄位設定</div>
+      <div class="page-sub">新增或刪除欄位，所有病例表單自動更新</div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <span style="font-weight:700;font-size:14px">目前欄位</span>
+          <span style="font-size:12px;color:var(--muted)" id="fc-badge">${editFields.length} 個</span>
+        </div>
+        <div class="card-body" id="flist">${editFields.map(fiHTML).join('')}</div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span style="font-weight:700;font-size:14px">新增欄位</span></div>
+        <div class="card-body">
+          <div class="frow" style="margin-bottom:12px">
+            <div class="fg"><label class="flabel">欄位名稱</label><input class="finput" id="nf-label" placeholder="例：過敏史、追蹤日期..."></div>
+            <div class="fg"><label class="flabel">所屬分區</label><input class="finput" id="nf-section" placeholder="例：基本資料、問卷..."></div>
+          </div>
+          <div class="fg">
+            <label class="flabel">欄位類型</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px" id="tchips">
+              ${['text','number','date','textarea','select'].map(t=>`<div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selType(this)">${TYPE_NAMES[t]}</div>`).join('')}
+            </div>
+          </div>
+          <div class="fg" id="opt-wrap" style="display:none">
+            <label class="flabel">選項（逗號分隔）</label>
+            <input class="finput" id="nf-options" placeholder="例：良好,普通,不佳">
+          </div>
+          <div class="fg">
+            <label class="flabel">分區顏色</label>
+            <div style="display:flex;gap:8px;margin-top:6px" id="cpicker">
+              ${COLORS.map((c,i)=>`<div class="cdot ${i===0?'act':''}" style="background:${c}" data-c="${c}" onclick="selColor(this)"></div>`).join('')}
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="addField()">＋ 新增欄位</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function fiHTML(f){
+  return `<div class="fi" id="fi-${f.id}">
+    <div style="width:10px;height:10px;border-radius:50%;background:${f.sectionColor||'#1d6fa4'};flex-shrink:0"></div>
+    <div class="fi-info"><div class="fi-label">${escH(f.label)}</div><div class="fi-type">${escH(f.section)} · ${TYPE_NAMES[f.type]||f.type}</div></div>
+    <button class="btn btn-danger btn-sm" onclick="removeField('${f.id}')">刪除</button>
+  </div>`;
+}
+function selType(el){document.querySelectorAll('.tchip').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');document.getElementById('opt-wrap').style.display=el.dataset.t==='select'?'':'none';}
+function selColor(el){document.querySelectorAll('.cdot').forEach(c=>c.classList.remove('act'));el.classList.add('act');}
+function addField(){
+  const label=document.getElementById('nf-label').value.trim();
+  if(!label){alert('請輸入欄位名稱');return;}
+  const section=document.getElementById('nf-section').value.trim()||'其他';
+  const type=document.querySelector('.tchip.sel')?.dataset.t||'text';
+  const options=document.getElementById('nf-options')?.value.trim()||'';
+  const color=document.querySelector('.cdot.act')?.dataset.c||'#1d6fa4';
+  const f={id:uid(),label,section,sectionColor:color,type,options};
+  editFields.push(f);
+  document.getElementById('flist').insertAdjacentHTML('beforeend',fiHTML(f));
+  document.getElementById('fc-badge').textContent=editFields.length+' 個';
+  document.getElementById('nf-label').value='';
+  toast('欄位已加入，記得按「儲存設定」');
+}
+function removeField(fid){
+  if(!confirm('刪除此欄位？'))return;
+  editFields=editFields.filter(f=>f.id!==fid);
+  document.getElementById('fi-'+fid)?.remove();
+  document.getElementById('fc-badge').textContent=editFields.length+' 個';
+}
+async function saveSettings(pid){
+  const p=await dbGet('projects',pid);
+  p.fields=editFields;
+  await dbPut('projects',p);
+  toast('✅ 欄位設定已儲存');
+  goProject(pid);
+}
+
+// ── Project Modal ──────────────────────────────────────────────────────────
+async function showProjModal(pid){
+  const p=pid?await dbGet('projects',pid):null;
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="pmodal" onclick="if(event.target.id==='pmodal')closeMod()">
+      <div class="modal">
+        <div class="modal-hd"><span class="modal-title">${p?'編輯 Project':'建立新 Project'}</span><button class="btn-icon" onclick="closeMod()">✕</button></div>
+        <div class="modal-bd">
+          <div class="fg"><label class="flabel req">Project 名稱</label><input class="finput" id="mp-name" value="${escH(p?.name||'')}" placeholder="例：高血壓研究"></div>
+          <div class="fg"><label class="flabel">描述</label><input class="finput" id="mp-desc" value="${escH(p?.description||'')}" placeholder="簡短說明此 Project 用途"></div>
+          ${!p?`<div style="font-size:12px;color:var(--muted);background:#f8fbff;border-radius:8px;padding:10px 13px">建立後可在「欄位設定」中自訂問卷欄位（預設提供標準病例欄位）</div>`:''}
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeMod()">取消</button>
+          <button class="btn btn-primary" onclick="${p?`saveProjEdit('${pid}')`:'createProj()'}">${p?'儲存':'建立'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+function closeMod(){document.getElementById('pmodal')?.remove();}
+async function createProj(){
+  const name=document.getElementById('mp-name').value.trim();
+  if(!name){alert('請輸入名稱');return;}
+  await dbPut('projects',{id:uid(),name,description:document.getElementById('mp-desc').value.trim(),fields:JSON.parse(JSON.stringify(DEFAULT_FIELDS)),createdAt:Date.now()});
+  closeMod();toast('✅ Project 已建立');vProjects();
+}
+async function saveProjEdit(pid){
+  const p=await dbGet('projects',pid);
+  p.name=document.getElementById('mp-name').value.trim()||p.name;
+  p.description=document.getElementById('mp-desc').value.trim();
+  await dbPut('projects',p);closeMod();toast('✅ 已更新');render();
+}
+async function delProject(pid){
+  const p=await dbGet('projects',pid);
+  if(!confirm(`確定刪除「${p.name}」？此 Project 下所有病例也會刪除。`))return;
+  const cs=await dbIdx('cases','pid',pid);
+  for(const c of cs) await dbDel('cases',c.id);
+  await dbDel('projects',pid);toast('🗑️ 已刪除');vProjects();
+}
+
+// ── New case ───────────────────────────────────────────────────────────────
+async function newCase(pid){
+  const cs=await dbIdx('cases','pid',pid);
+  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data:{},createdAt:Date.now()};
+  await dbPut('cases',c);goCase(c.id,pid);
+}
+
+// ── Export CSV ─────────────────────────────────────────────────────────────
+async function exportCSV(pid){
+  const p=await dbGet('projects',pid);
+  const cs=await dbIdx('cases','pid',pid);
+  const fields=p.fields||DEFAULT_FIELDS;
+  const hdrs=['病例號',...fields.map(f=>f.label),'建立日期'];
+  const rows=cs.map(c=>[c.caseNum||'',...fields.map(f=>(c.data[f.id]||'').replace(/,/g,'，')),new Date(c.createdAt).toLocaleDateString('zh-TW')]);
+  dlCSV(p.name+'_病例資料',hdrs,rows);
+}
+async function exportAll(){
+  const ps=await dbAll('projects');
+  if(!ps.length){alert('尚無資料');return;}
+  for(const p of ps) await exportCSV(p.id);
+  toast(`✅ 已匯出 ${ps.length} 個 Project`);
+}
+function dlCSV(fname,hdrs,rows){
+  const csv=[hdrs,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));
+  a.download=fname+'.csv';a.click();
+}
+
+// ── JSON 匯出／匯入（協作用）─────────────────────────────────────────────────
+async function showSyncModal(pid){
+  // 如果有指定 pid 就只顯示那個 project，否則顯示全部
+  const allProjs = await dbAll('projects');
+  const targetProjs = pid ? allProjs.filter(p=>p.id===pid) : allProjs;
+
+  // 建立選項清單
+  const projOptions = allProjs.map(p=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1.5px solid var(--border);background:#f8fbff;margin-bottom:6px">
+      <input type="checkbox" value="${p.id}" ${targetProjs.find(t=>t.id===p.id)?'checked':''} style="width:15px;height:15px;accent-color:var(--sky)">
+      <span style="font-size:13px;font-weight:700">${escH(p.name)}</span>
+    </label>`).join('');
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="sync-modal" onclick="if(event.target.id==='sync-modal')closeSyncMod()">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-hd">
+          <span class="modal-title">🔄 資料匯出 ／ 匯入</span>
+          <button class="btn-icon" onclick="closeSyncMod()">✕</button>
+        </div>
+        <div class="modal-bd" style="padding-bottom:8px">
+
+          <!-- 匯出區 -->
+          <div style="background:#f0f8ff;border-radius:12px;padding:16px;margin-bottom:16px;border:1.5px solid #bfdbfe">
+            <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:4px">📤 匯出資料給別人</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">選擇要匯出的 Project，產生 JSON 檔案後傳給協助者</div>
+            <div id="export-proj-list">${projOptions}</div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doExportJSON()">📥 下載 JSON 檔案</button>
+          </div>
+
+          <!-- 匯入區 -->
+          <div style="background:#f0fdf4;border-radius:12px;padding:16px;border:1.5px solid #bbf7d0">
+            <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:4px">📨 匯入別人回傳的資料</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">選擇協助者回傳的 JSON 檔案，資料會自動合併更新</div>
+            <label style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px dashed #86efac;border-radius:10px;cursor:pointer;background:#fff;font-size:13px;font-weight:700;color:var(--teal)">
+              <span>📁 選擇 JSON 檔案</span>
+              <input type="file" accept=".json" id="import-file" style="display:none" onchange="doImportJSON(this)">
+            </label>
+            <div id="import-result" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+          </div>
+
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeSyncMod()">關閉</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function closeSyncMod(){document.getElementById('sync-modal')?.remove();}
+
+async function doExportJSON(){
+  const checked=[...document.querySelectorAll('#export-proj-list input:checked')].map(el=>el.value);
+  if(!checked.length){alert('請至少選擇一個 Project');return;}
+  const payload={version:1,exportedAt:new Date().toISOString(),projects:[]};
+  for(const pid of checked){
+    const p=await dbGet('projects',pid);
+    const cases=await dbIdx('cases','pid',pid);
+    payload.projects.push({...p,cases});
+  }
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  const date=new Date().toLocaleDateString('zh-TW').replace(/\//g,'-');
+  a.download=`病例資料_${date}.json`;
+  a.click();
+  toast('✅ JSON 已下載，請傳給協助者');
+}
+
+async function doImportJSON(input){
+  const file=input.files[0];
+  if(!file) return;
+  const resultEl=document.getElementById('import-result');
+  try{
+    const text=await file.text();
+    const payload=JSON.parse(text);
+    if(!payload.version||!payload.projects) throw new Error('格式錯誤');
+
+    let newCases=0, updCases=0, newProjs=0;
+    for(const projData of payload.projects){
+      const {cases,...proj}=projData;
+      // 建立或更新 project
+      const existing=await dbGet('projects',proj.id);
+      if(!existing){await dbPut('projects',proj);newProjs++;}
+      // 合併病例：以 id 為準，若已存在則比較 updatedAt 取較新者
+      for(const c of (cases||[])){
+        const exCase=await dbGet('cases',c.id);
+        if(!exCase){
+          await dbPut('cases',c);newCases++;
+        } else {
+          const existTs=exCase.updatedAt||exCase.createdAt||0;
+          const incomTs=c.updatedAt||c.createdAt||0;
+          if(incomTs>existTs){await dbPut('cases',c);updCases++;}
+        }
+      }
+    }
+    resultEl.innerHTML=`<div style="color:var(--teal);font-weight:700;padding:8px 10px;background:#f0fdf4;border-radius:8px">
+      ✅ 匯入完成！新增 ${newCases} 筆、更新 ${updCases} 筆病例${newProjs?`、新增 ${newProjs} 個 Project`:''}
+    </div>`;
+    // 重新整理
+    setTimeout(()=>{closeSyncMod();render();},1500);
+  } catch(e){
+    resultEl.innerHTML=`<div style="color:var(--red);font-weight:700;padding:8px 10px;background:#fff5f5;border-radius:8px">❌ 檔案格式錯誤，請確認是正確的 JSON 檔案</div>`;
+  }
+}
+
+// ── Util ───────────────────────────────────────────────────────────────────
+function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// Cmd+S
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();if(VIEW==='case'&&dirty)saveCase();}});
+
+// ── 備份提醒系統 ────────────────────────────────────────────────────────────
+const BACKUP_KEY = 'lastBackupReminder';
+const BACKUP_INTERVAL = 15 * 60 * 1000; // 15分鐘
+
+function getLastBackup(){
+  return parseInt(localStorage.getItem(BACKUP_KEY)||'0');
+}
+function markBackupSeen(){
+  localStorage.setItem(BACKUP_KEY, Date.now().toString());
+}
+
+function showBackupReminder(){
+  // 如果提醒視窗已存在就跳過
+  if(document.getElementById('backup-reminder')) return;
+  document.body.insertAdjacentHTML('beforeend',`
+    <div id="backup-reminder" style="
+      position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+      background:var(--navy);color:#fff;border-radius:14px;
+      padding:14px 20px;display:flex;align-items:center;gap:14px;
+      box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:400;
+      animation:slideUp .25s;white-space:nowrap;
+    ">
+      <span style="font-size:20px">💾</span>
+      <div>
+        <div style="font-size:13px;font-weight:800">距離上次備份已超過 15 分鐘</div>
+        <div style="font-size:11px;color:#93c5fd;margin-top:2px">建議匯出 JSON 備份，避免資料遺失</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-left:8px">
+        <button onclick="quickBackup()" style="
+          padding:7px 14px;border-radius:8px;border:none;
+          background:var(--teal);color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+        ">立即備份</button>
+        <button onclick="dismissReminder()" style="
+          padding:7px 12px;border-radius:8px;
+          background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);
+          color:#fff;font-size:12px;font-weight:600;cursor:pointer;
+        ">稍後</button>
+      </div>
+    </div>`);
+}
+
+function dismissReminder(){
+  document.getElementById('backup-reminder')?.remove();
+  markBackupSeen();
+}
+
+async function quickBackup(){
+  const projs = await dbAll('projects');
+  if(!projs.length){ dismissReminder(); return; }
+  const payload={version:1,exportedAt:new Date().toISOString(),projects:[]};
+  for(const p of projs){
+    const cases=await dbIdx('cases','pid',p.id);
+    payload.projects.push({...p,cases});
+  }
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  const dt=new Date();
+  const ts=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}_${String(dt.getHours()).padStart(2,'0')}${String(dt.getMinutes()).padStart(2,'0')}`;
+  a.download=`病例備份_${ts}.json`;
+  a.click();
+  dismissReminder();
+  toast('✅ 備份完成！檔案已下載');
+}
+
+// 每分鐘檢查是否需要提醒
+function startBackupTimer(){
+  setInterval(()=>{
+    const now = Date.now();
+    const last = getLastBackup();
+    // 超過15分鐘且有資料
+    if(now - last > BACKUP_INTERVAL){
+      dbAll('projects').then(ps=>{
+        if(ps.length > 0) showBackupReminder();
+      });
+    }
+  }, 60 * 1000); // 每分鐘檢查一次
+
+  // 初始化：第一次設定時間戳（讓15分鐘後才開始提醒）
+  if(!localStorage.getItem(BACKUP_KEY)) markBackupSeen();
+}
+
+// 關閉視窗前提醒
+window.addEventListener('beforeunload', e=>{
+  if(dirty){
+    e.preventDefault();
+    e.returnValue='有未儲存的病例變更，確定要離開？';
+  }
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+openDB().then(()=>{ vProjects(); startBackupTimer(); });
+</script>
+</body>
+</html>

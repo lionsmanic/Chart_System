@@ -4,157 +4,289 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>病例管理系統</title>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --navy:#0f2744;--navy2:#1a3a5c;--blue:#1d6fa4;--sky:#3b9edd;--teal:#0d9488;
-    --light:#f0f6fc;--border:#d1e3f0;--text:#0f2744;--muted:#6b8299;
-    --red:#e53e3e;--green:#38a169;--shadow:0 2px 12px rgba(15,39,68,.08);
-    --shadow-lg:0 8px 32px rgba(15,39,68,.14);--radius:10px;
+  :root{
+    --ink:#1C1E22;--ink2:#2E3138;--sage:#3E7265;--sage2:#4E8A7A;--sage-light:#E8F3F0;
+    --gold:#9A7A3A;--gold-light:#F5EDD8;--cream:#F0EBE1;--card:#FDFAF6;
+    --border:#DDD7CC;--border2:#EAE4DC;--muted:#8A8078;--white:#FFFFFF;
+    --red:#B03A2E;--red-bg:#FDF0EE;--red-border:#E8C5BF;
+    --shadow:0 1px 8px rgba(28,30,34,.07),0 4px 20px rgba(28,30,34,.05);
+    --shadow-lg:0 8px 40px rgba(28,30,34,.14),0 2px 12px rgba(28,30,34,.08);
+    --shadow-card:0 2px 16px rgba(28,30,34,.06);
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'Noto Sans TC',sans-serif;background:var(--light);color:var(--text);min-height:100vh;}
+  html{scroll-behavior:smooth;}
+  body{
+    font-family:'Noto Sans TC',sans-serif;
+    background:var(--cream);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.018'/%3E%3C/svg%3E");
+    color:var(--ink);min-height:100vh;
+  }
   button,input,textarea,select{font-family:inherit;}
+  ::selection{background:var(--sage-light);color:var(--sage);}
 
-  /* Layout */
-  .header{background:linear-gradient(135deg,var(--navy),var(--navy2));padding:0 28px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 16px rgba(0,0,0,.18);position:sticky;top:0;z-index:100;}
-  .logo{display:flex;align-items:center;gap:10px;color:#fff;cursor:pointer;}
-  .logo-text{font-size:17px;font-weight:900;letter-spacing:1px;}
-  .logo-sub{font-size:11px;color:#7eb3d8;font-weight:400;margin-left:4px;}
-  .hactions{display:flex;gap:8px;}
-  .main{padding:28px;max-width:1200px;margin:0 auto;}
+  /* ── Header ── */
+  .header{
+    background:var(--ink);
+    padding:0 32px;height:60px;display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 1px 0 rgba(255,255,255,.06),0 4px 24px rgba(0,0,0,.22);
+    position:sticky;top:0;z-index:100;
+  }
+  .header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);}
+  .logo{display:flex;align-items:center;gap:12px;color:#fff;cursor:pointer;text-decoration:none;}
+  .logo-mark{width:32px;height:32px;background:linear-gradient(135deg,var(--sage),var(--sage2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(62,114,101,.4);}
+  .logo-text{font-size:15px;font-weight:700;letter-spacing:.5px;color:#F0EBE1;}
+  .logo-sub{font-size:11px;color:rgba(240,235,225,.4);font-weight:400;margin-left:2px;}
+  .hactions{display:flex;gap:8px;align-items:center;}
 
-  /* Buttons */
-  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;transition:all .15s;white-space:nowrap;}
-  .btn-primary{background:var(--sky);color:#fff;}
-  .btn-primary:hover{background:var(--blue);transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,158,221,.35);}
-  .btn-ghost{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);}
-  .btn-ghost:hover{background:rgba(255,255,255,.18);}
-  .btn-outline{background:#fff;color:var(--blue);border:1.5px solid var(--border);}
-  .btn-outline:hover{border-color:var(--sky);background:#f0f8ff;}
-  .btn-danger{background:#fff5f5;color:var(--red);border:1.5px solid #fca5a5;}
-  .btn-danger:hover{background:#fee2e2;}
-  .btn-success{background:var(--teal);color:#fff;}
-  .btn-success:hover{background:#0f7a70;}
-  .btn-sm{padding:5px 12px;font-size:12px;}
-  .btn-icon{padding:7px;border-radius:7px;background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;}
-  .btn-icon:hover{background:#f0f6fc;color:var(--blue);}
+  /* ── Main ── */
+  .main{padding:32px;max-width:1240px;margin:0 auto;}
 
-  /* Cards */
-  .card{background:#fff;border-radius:14px;border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden;}
-  .card-header{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
-  .card-body{padding:22px;}
+  /* ── Buttons ── */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .18s;white-space:nowrap;letter-spacing:.2px;}
+  .btn-primary{background:var(--sage);color:#fff;box-shadow:0 2px 8px rgba(62,114,101,.25);}
+  .btn-primary:hover{background:var(--sage2);transform:translateY(-1px);box-shadow:0 5px 16px rgba(62,114,101,.35);}
+  .btn-ghost{background:rgba(240,235,225,.08);color:rgba(240,235,225,.85);border:1px solid rgba(240,235,225,.15);}
+  .btn-ghost:hover{background:rgba(240,235,225,.14);color:#fff;}
+  .btn-outline{background:var(--card);color:var(--ink2);border:1.5px solid var(--border);}
+  .btn-outline:hover{border-color:var(--sage);color:var(--sage);background:var(--sage-light);}
+  .btn-danger{background:var(--red-bg);color:var(--red);border:1.5px solid var(--red-border);}
+  .btn-danger:hover{background:#FAE0DC;}
+  .btn-success{background:var(--sage);color:#fff;box-shadow:0 2px 8px rgba(62,114,101,.2);}
+  .btn-success:hover{background:var(--sage2);transform:translateY(-1px);}
+  .btn-sm{padding:5px 13px;font-size:12px;}
+  .btn-icon{padding:7px;border-radius:7px;background:none;border:1px solid var(--border2);color:var(--muted);cursor:pointer;transition:all .15s;}
+  .btn-icon:hover{background:var(--sage-light);border-color:var(--sage);color:var(--sage);}
 
-  /* Projects */
-  .page-title{font-size:22px;font-weight:900;color:var(--navy);margin-bottom:6px;}
-  .page-sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
-  .project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;}
-  .project-card{background:#fff;border-radius:14px;border:1px solid var(--border);padding:22px;cursor:pointer;transition:all .18s;box-shadow:var(--shadow);position:relative;overflow:hidden;}
-  .project-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--sky),var(--teal));}
-  .project-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg);border-color:var(--sky);}
-  .project-card-name{font-size:16px;font-weight:800;color:var(--navy);margin-bottom:6px;}
-  .project-card-desc{font-size:13px;color:var(--muted);margin-bottom:16px;min-height:20px;}
-  .project-card-meta{display:flex;gap:10px;flex-wrap:wrap;}
-  .mbadge{font-size:12px;color:var(--blue);background:#e8f4fd;padding:3px 10px;border-radius:20px;font-weight:600;}
-  .project-new{background:#f8fbff;border:2px dashed var(--border);border-radius:14px;padding:22px;cursor:pointer;transition:all .18s;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:140px;gap:10px;color:var(--muted);}
-  .project-new:hover{border-color:var(--sky);color:var(--blue);background:#f0f8ff;}
+  /* ── Cards ── */
+  .card{background:var(--card);border-radius:16px;border:1px solid var(--border2);box-shadow:var(--shadow-card);overflow:hidden;}
+  .card-header{padding:18px 24px;border-bottom:1px solid var(--border2);display:flex;align-items:center;justify-content:space-between;}
+  .card-body{padding:24px;}
 
-  /* Modal */
-  .overlay{position:fixed;inset:0;background:rgba(10,25,50,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s;}
-  .modal{background:#fff;border-radius:16px;width:100%;max-width:500px;box-shadow:var(--shadow-lg);animation:slideUp .18s;}
-  .modal-hd{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
-  .modal-title{font-size:16px;font-weight:800;color:var(--navy);}
-  .modal-bd{padding:22px 24px;}
-  .modal-ft{padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;}
+  /* ── Page titles ── */
+  .page-title{
+    font-family:'Cormorant Garamond',serif;
+    font-size:32px;font-weight:600;color:var(--ink);margin-bottom:6px;letter-spacing:-.3px;line-height:1.2;
+  }
+  .page-sub{font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.6;}
+
+  /* ── Project grid ── */
+  .project-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:20px;}
+  .project-card{
+    background:var(--card);border-radius:16px;border:1px solid var(--border2);
+    padding:26px 24px 22px;cursor:pointer;transition:all .22s cubic-bezier(.25,.46,.45,.94);
+    box-shadow:var(--shadow-card);position:relative;overflow:hidden;
+  }
+  .project-card::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,var(--sage),var(--gold));opacity:.7;
+    transition:opacity .22s;
+  }
+  .project-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg);border-color:rgba(62,114,101,.25);}
+  .project-card:hover::before{opacity:1;}
+  .project-card-name{
+    font-family:'Cormorant Garamond',serif;
+    font-size:20px;font-weight:600;color:var(--ink);margin-bottom:8px;letter-spacing:-.2px;
+  }
+  .project-card-desc{font-size:13px;color:var(--muted);margin-bottom:18px;min-height:20px;line-height:1.5;}
+  .project-card-meta{display:flex;gap:8px;flex-wrap:wrap;}
+  .mbadge{font-size:11px;color:var(--sage);background:var(--sage-light);padding:3px 11px;border-radius:20px;font-weight:600;letter-spacing:.3px;}
+  .project-new{
+    background:transparent;border:1.5px dashed var(--border);border-radius:16px;
+    padding:22px;cursor:pointer;transition:all .22s;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:148px;gap:10px;color:var(--muted);
+  }
+  .project-new:hover{border-color:var(--sage);color:var(--sage);background:var(--sage-light);}
+  .project-new-icon{font-size:26px;opacity:.6;transition:opacity .2s;}
+  .project-new:hover .project-new-icon{opacity:1;}
+
+  /* ── Modal ── */
+  .overlay{
+    position:fixed;inset:0;
+    background:rgba(20,22,26,.6);backdrop-filter:blur(6px);
+    z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;
+    animation:fadeIn .18s;
+  }
+  .modal{
+    background:var(--card);border-radius:20px;width:100%;max-width:520px;
+    box-shadow:var(--shadow-lg);animation:slideUp .2s cubic-bezier(.34,1.56,.64,1);
+    border:1px solid var(--border2);
+  }
+  .modal-hd{padding:24px 28px 18px;border-bottom:1px solid var(--border2);display:flex;justify-content:space-between;align-items:center;}
+  .modal-title{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.2px;}
+  .modal-bd{padding:24px 28px;}
+  .modal-ft{padding:16px 28px;border-top:1px solid var(--border2);display:flex;justify-content:flex-end;gap:10px;}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-  @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @keyframes slideUp{from{transform:translateY(20px) scale(.97);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
+  @keyframes fadeInUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
 
-  /* Form fields */
-  .fg{margin-bottom:18px;}
-  .flabel{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;display:block;text-transform:uppercase;}
-  .flabel.req::after{content:' *';color:var(--red);}
-  .finput,.fselect,.ftextarea{width:100%;padding:9px 13px;border-radius:8px;border:1.5px solid var(--border);background:#f8fbff;font-size:14px;color:var(--text);outline:none;transition:border .18s,box-shadow .18s;}
-  .finput:focus,.fselect:focus,.ftextarea:focus{border-color:var(--sky);box-shadow:0 0 0 3px rgba(59,158,221,.12);background:#fff;}
-  .ftextarea{resize:vertical;min-height:80px;}
+  /* ── Form fields ── */
+  .fg{margin-bottom:20px;}
+  .flabel{
+    font-size:11px;font-weight:700;color:var(--muted);
+    letter-spacing:.8px;margin-bottom:7px;display:block;text-transform:uppercase;
+  }
+  .flabel.req::after{content:' ＊';color:var(--red);font-size:10px;}
+  .finput,.fselect,.ftextarea{
+    width:100%;padding:10px 14px;border-radius:9px;
+    border:1.5px solid var(--border);background:var(--white);
+    font-size:14px;color:var(--ink);outline:none;
+    transition:border .18s,box-shadow .18s,background .18s;
+  }
+  .finput:hover,.fselect:hover,.ftextarea:hover{border-color:#C5BFB6;}
+  .finput:focus,.fselect:focus,.ftextarea:focus{
+    border-color:var(--sage);
+    box-shadow:0 0 0 3px rgba(62,114,101,.1);
+    background:var(--white);
+  }
+  .ftextarea{resize:vertical;min-height:84px;line-height:1.6;}
   .frow{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 
-  /* Tabs */
-  .tabs{display:flex;gap:4px;background:#f0f6fc;border-radius:10px;padding:4px;margin-bottom:22px;}
-  .tab{flex:1;padding:8px 16px;border-radius:8px;border:none;background:none;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;}
-  .tab.active{background:#fff;color:var(--navy);box-shadow:0 1px 4px rgba(0,0,0,.1);}
+  /* ── Tabs ── */
+  .tabs{display:flex;gap:3px;background:var(--border2);border-radius:11px;padding:3px;margin-bottom:24px;width:fit-content;}
+  .tab{padding:8px 22px;border-radius:9px;border:none;background:none;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .18s;letter-spacing:.2px;}
+  .tab.active{background:var(--card);color:var(--ink);box-shadow:0 1px 6px rgba(28,30,34,.1),0 0 0 1px var(--border2);}
 
-  /* Project hero */
-  .proj-hero{background:linear-gradient(135deg,var(--navy),var(--blue));border-radius:14px;padding:22px 28px;margin-bottom:22px;color:#fff;display:flex;justify-content:space-between;align-items:center;}
-  .proj-hero-name{font-size:22px;font-weight:900;}
-  .proj-hero-desc{font-size:13px;color:#93c5fd;margin-top:4px;}
-  .stat-num{font-size:26px;font-weight:900;font-family:'DM Mono',monospace;}
-  .stat-lbl{font-size:11px;color:#93c5fd;}
+  /* ── Project hero ── */
+  .proj-hero{
+    background:var(--ink);
+    border-radius:18px;padding:28px 32px;margin-bottom:24px;color:#fff;
+    display:flex;justify-content:space-between;align-items:center;
+    position:relative;overflow:hidden;
+    box-shadow:var(--shadow-lg);
+  }
+  .proj-hero::before{
+    content:'';position:absolute;top:-60px;right:-60px;
+    width:240px;height:240px;border-radius:50%;
+    background:radial-gradient(circle,rgba(62,114,101,.3) 0%,transparent 70%);
+  }
+  .proj-hero::after{
+    content:'';position:absolute;bottom:-40px;left:40%;
+    width:160px;height:160px;border-radius:50%;
+    background:radial-gradient(circle,rgba(154,122,58,.15) 0%,transparent 70%);
+  }
+  .proj-hero-name{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;letter-spacing:-.3px;position:relative;z-index:1;}
+  .proj-hero-desc{font-size:13px;color:rgba(240,235,225,.55);margin-top:6px;position:relative;z-index:1;}
+  .proj-hero-stats{position:relative;z-index:1;display:flex;gap:28px;text-align:right;}
+  .stat-num{font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:600;line-height:1;color:#fff;}
+  .stat-lbl{font-size:11px;color:rgba(240,235,225,.45);margin-top:3px;letter-spacing:.5px;}
 
-  /* Table */
-  .tbar{display:flex;gap:10px;margin-bottom:16px;align-items:center;}
-  .sw{position:relative;flex:1;}
-  .sw input{padding-left:36px;}
-  .si{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
-  .twrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border);}
+  /* ── Table ── */
+  .tbar{display:flex;gap:10px;margin-bottom:18px;align-items:center;}
+  .sw{position:relative;flex:1;max-width:400px;}
+  .sw input{padding-left:38px;}
+  .si{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;font-size:14px;}
+  .twrap{overflow-x:auto;border-radius:14px;border:1px solid var(--border2);background:var(--card);box-shadow:var(--shadow-card);}
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  thead tr{background:#f8fbff;}
-  th{padding:11px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;border-bottom:2px solid var(--border);white-space:nowrap;}
-  td{padding:12px 14px;border-bottom:1px solid #f0f6fc;vertical-align:middle;}
+  thead tr{background:var(--cream);}
+  th{
+    padding:12px 16px;text-align:left;font-size:10.5px;font-weight:700;
+    color:var(--muted);letter-spacing:.8px;text-transform:uppercase;
+    border-bottom:1px solid var(--border);white-space:nowrap;
+  }
+  td{padding:13px 16px;border-bottom:1px solid var(--border2);vertical-align:middle;color:var(--ink2);}
   tr:last-child td{border-bottom:none;}
-  tbody tr{cursor:pointer;transition:background .12s;}
-  tbody tr:hover{background:#f0f8ff;}
-  .tdname{font-weight:700;color:var(--navy);}
+  tbody tr{cursor:pointer;transition:background .14s;}
+  tbody tr:hover{background:var(--sage-light);}
+  .tdname{font-weight:700;color:var(--ink);}
   .tdmuted{color:var(--muted);}
-  .empty{text-align:center;padding:60px 20px;color:var(--muted);}
-  .empty-icon{font-size:40px;margin-bottom:12px;}
-  .empty-title{font-size:15px;font-weight:700;margin-bottom:6px;}
+  .empty{text-align:center;padding:72px 20px;color:var(--muted);}
+  .empty-icon{font-size:44px;margin-bottom:14px;opacity:.5;}
+  .empty-title{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;margin-bottom:8px;color:var(--ink2);}
 
-  /* Case form */
-  .case-hero{background:linear-gradient(135deg,var(--navy),var(--sky));border-radius:14px;padding:20px 26px;margin-bottom:24px;color:#fff;}
-  .case-hero-id{font-size:11px;opacity:.65;font-family:'DM Mono',monospace;letter-spacing:1px;}
-  .case-hero-name{font-size:24px;font-weight:900;margin:4px 0;}
-  .case-hero-meta{font-size:13px;opacity:.8;}
-  .fsection{margin-bottom:20px;border-radius:12px;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow);}
-  .fsection-hd{padding:11px 18px;font-size:12px;font-weight:800;letter-spacing:1px;color:#fff;}
-  .fsection-bd{padding:20px 18px 16px;background:#fff;}
-  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px 22px;}
+  /* ── Case form hero ── */
+  .case-hero{
+    background:var(--ink);border-radius:18px;padding:26px 30px;margin-bottom:26px;
+    position:relative;overflow:hidden;box-shadow:var(--shadow-lg);
+  }
+  .case-hero::before{
+    content:'';position:absolute;top:-80px;right:-40px;width:280px;height:280px;border-radius:50%;
+    background:radial-gradient(circle,rgba(62,114,101,.25) 0%,transparent 65%);pointer-events:none;
+  }
+  .case-hero-id{font-size:10px;color:rgba(240,235,225,.4);font-family:'DM Mono',monospace;letter-spacing:1.5px;text-transform:uppercase;position:relative;z-index:1;}
+  .case-hero-name{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600;color:#fff;margin:6px 0;letter-spacing:-.3px;position:relative;z-index:1;}
+  .case-hero-meta{font-size:12px;color:rgba(240,235,225,.45);position:relative;z-index:1;letter-spacing:.2px;}
 
-  /* Save bar */
-  .savebar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,39,68,.96);backdrop-filter:blur(8px);padding:12px 28px;display:flex;justify-content:space-between;align-items:center;z-index:90;transform:translateY(100%);transition:transform .25s;}
+  /* ── Form sections ── */
+  .fsection{
+    margin-bottom:18px;border-radius:14px;
+    border:1px solid var(--border2);overflow:hidden;
+    box-shadow:var(--shadow-card);
+    animation:fadeInUp .25s ease both;
+  }
+  .fsection-hd{
+    padding:12px 20px;font-size:11px;font-weight:700;
+    letter-spacing:1.2px;text-transform:uppercase;
+    display:flex;align-items:center;gap:10px;
+  }
+  .fsection-hd-dot{width:7px;height:7px;border-radius:50%;opacity:.8;}
+  .fsection-bd{padding:22px 20px 18px;background:var(--card);}
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px 24px;}
+
+  /* ── Save bar ── */
+  .savebar{
+    position:fixed;bottom:0;left:0;right:0;
+    background:rgba(28,30,34,.97);backdrop-filter:blur(12px) saturate(180%);
+    padding:14px 32px;display:flex;justify-content:space-between;align-items:center;
+    z-index:90;transform:translateY(100%);transition:transform .28s cubic-bezier(.34,1.2,.64,1);
+    border-top:1px solid rgba(255,255,255,.06);
+  }
   .savebar.on{transform:translateY(0);}
-  .savebar-msg{color:#93c5fd;font-size:13px;}
+  .savebar-msg{color:rgba(240,235,225,.6);font-size:13px;display:flex;align-items:center;gap:8px;}
 
-  /* Breadcrumb */
-  .bc{display:flex;align-items:center;gap:6px;margin-bottom:18px;font-size:13px;color:var(--muted);}
-  .bc a{color:var(--blue);cursor:pointer;font-weight:600;}
-  .bc a:hover{text-decoration:underline;}
-  .bc-sep{color:#ccd8e5;}
+  /* ── Breadcrumb ── */
+  .bc{display:flex;align-items:center;gap:8px;margin-bottom:22px;font-size:13px;color:var(--muted);}
+  .bc a{color:var(--sage);cursor:pointer;font-weight:600;transition:color .15s;}
+  .bc a:hover{color:var(--sage2);}
+  .bc-sep{color:var(--border);font-size:16px;}
 
-  /* Field builder */
-  .fi{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fbff;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;}
+  /* ── Field builder ── */
+  .fi{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border-radius:10px;border:1px solid var(--border2);margin-bottom:8px;transition:box-shadow .15s;}
+  .fi:hover{box-shadow:0 2px 12px rgba(28,30,34,.07);}
   .fi-info{flex:1;}
-  .fi-label{font-size:13px;font-weight:700;color:var(--navy);}
-  .fi-type{font-size:11px;color:var(--muted);}
-  .tchip{padding:5px 12px;border-radius:20px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .12s;}
-  .tchip:hover,.tchip.sel{border-color:var(--sky);color:var(--blue);background:#f0f8ff;}
-  .cdot{width:22px;height:22px;border-radius:50%;cursor:pointer;transition:transform .12s;border:2px solid transparent;}
-  .cdot:hover,.cdot.act{transform:scale(1.2);border-color:#fff;box-shadow:0 0 0 2px var(--navy);}
+  .fi-label{font-size:13px;font-weight:600;color:var(--ink);}
+  .fi-type{font-size:11px;color:var(--muted);margin-top:2px;}
+  .tchip{padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:var(--card);font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;}
+  .tchip:hover,.tchip.sel{border-color:var(--sage);color:var(--sage);background:var(--sage-light);}
+  .cdot{width:24px;height:24px;border-radius:50%;cursor:pointer;transition:all .15s;border:2px solid transparent;}
+  .cdot:hover,.cdot.act{transform:scale(1.15);border-color:var(--white);box-shadow:0 0 0 2px var(--ink2);}
 
-  /* Toast */
-  .toast{position:fixed;bottom:80px;right:24px;background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:var(--shadow-lg);z-index:300;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;transform:translateY(8px);}
+  /* ── Toast ── */
+  .toast{
+    position:fixed;bottom:90px;right:28px;
+    background:var(--ink);color:var(--cream);
+    padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;
+    box-shadow:var(--shadow-lg);z-index:300;opacity:0;pointer-events:none;
+    transition:opacity .22s,transform .22s;transform:translateY(10px);
+    border:1px solid rgba(255,255,255,.08);letter-spacing:.2px;
+  }
   .toast.on{opacity:1;transform:translateY(0);}
+
+  /* ── Backup reminder ── */
+  #backup-reminder{
+    border:1px solid rgba(255,255,255,.08) !important;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar{width:6px;height:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+  ::-webkit-scrollbar-thumb:hover{background:#C5BFB6;}
 
   @media(max-width:640px){
     .main{padding:16px;}
     .frow,.sgrid{grid-template-columns:1fr;}
-    .proj-hero{flex-direction:column;gap:16px;}
+    .proj-hero{flex-direction:column;gap:18px;align-items:flex-start;}
+    .proj-hero-stats{text-align:left;}
   }
 </style>
 </head>
 <body>
 <header class="header">
   <div class="logo" onclick="goHome()">
-    <span style="font-size:22px">🏥</span>
+    <div class="logo-mark">✚</div>
     <span class="logo-text">病例管理系統</span>
     <span class="logo-sub" id="hbreadcrumb"></span>
   </div>
@@ -162,10 +294,13 @@
 </header>
 <main class="main" id="app"></main>
 <div class="savebar" id="savebar">
-  <span class="savebar-msg">⚠️ 有未儲存的變更（或按 ⌘S）</span>
+  <span class="savebar-msg">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.6"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    有未儲存的變更（⌘S 快速儲存）
+  </span>
   <div style="display:flex;gap:10px">
     <button class="btn btn-ghost btn-sm" onclick="discardChanges()">放棄</button>
-    <button class="btn btn-success btn-sm" onclick="saveCase()">💾 儲存</button>
+    <button class="btn btn-success btn-sm" onclick="saveCase()">儲存</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -274,8 +409,8 @@ async function vProjects(){
           </div>
         </div>`).join('')}
       <div class="project-new" onclick="showProjModal(null)">
-        <div style="font-size:28px">＋</div>
-        <div style="font-size:14px;font-weight:700">建立新 Project</div>
+        <div class="project-new-icon">＋</div>
+        <div style="font-size:14px;font-weight:600">建立新 Project</div>
       </div>
     </div>`;
   for(const p of projs){
@@ -399,18 +534,18 @@ async function vCase(){
 
       <!-- AI 掃描區塊（預設收起）-->
       <div id="ai-scan-panel" style="display:none;margin-bottom:20px;border-radius:14px;border:2px solid #bfdbfe;overflow:hidden;box-shadow:0 2px 16px rgba(59,130,246,.1)">
-        <div style="background:linear-gradient(135deg,#1e3a8a,#1d6fa4);padding:14px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div style="background:var(--ink);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)">
           <div>
-            <div style="color:#fff;font-size:14px;font-weight:800">📷 Gemini AI 病歷辨識</div>
-            <div style="color:#93c5fd;font-size:12px;margin-top:2px">上傳一或多張病歷照片，AI 自動辨識並填入對應欄位</div>
+            <div style="color:var(--cream);font-size:14px;font-weight:700;letter-spacing:.3px">📷 Gemini AI 病歷辨識</div>
+            <div style="color:rgba(240,235,225,.45);font-size:12px;margin-top:3px">上傳一或多張病歷照片，AI 自動辨識並填入對應欄位</div>
           </div>
-          <button onclick="hideAIScan()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">收起 ✕</button>
+          <button onclick="hideAIScan()" style="background:rgba(240,235,225,.08);border:1px solid rgba(240,235,225,.15);color:rgba(240,235,225,.7);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">收起 ✕</button>
         </div>
-        <div style="background:#f8fbff;padding:20px">
+        <div style="background:var(--cream);padding:20px">
 
           <!-- API Key 輸入 -->
-          <div id="ai-apikey-wrap" style="margin-bottom:16px;padding:14px 16px;background:#fff;border-radius:10px;border:1.5px solid var(--border)">
-            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Gemini API Key</div>
+          <div id="ai-apikey-wrap" style="margin-bottom:16px;padding:14px 16px;background:var(--card);border-radius:12px;border:1px solid var(--border2)">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Gemini API Key</div>
             <div style="display:flex;gap:8px">
               <input class="finput" type="password" id="gemini-key" placeholder="請輸入您的 Gemini API Key" style="flex:1">
               <button class="btn btn-outline btn-sm" onclick="saveGeminiKey()">記住</button>
@@ -419,13 +554,13 @@ async function vCase(){
           </div>
 
           <!-- 上傳區 -->
-          <div id="ai-upload-area" style="border:2px dashed #93c5fd;border-radius:12px;padding:24px 20px;text-align:center;cursor:pointer;background:#fff;transition:all .2s"
+          <div id="ai-upload-area" style="border:1.5px dashed var(--border);border-radius:12px;padding:24px 20px;text-align:center;cursor:pointer;background:var(--card);transition:all .2s"
             onclick="document.getElementById('ai-file-input').click()"
-            ondragover="event.preventDefault();this.style.background='#eff6ff'"
-            ondragleave="this.style.background='#fff'"
+            ondragover="event.preventDefault();this.style.background='var(--sage-light)';this.style.borderColor='var(--sage)'"
+            ondragleave="this.style.background='var(--card)';this.style.borderColor='var(--border)'"
             ondrop="handleAIDrop(event)">
-            <div style="font-size:36px;margin-bottom:8px">📸</div>
-            <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:4px">點此上傳病歷照片（可一次選多張）</div>
+            <div style="font-size:32px;margin-bottom:8px;opacity:.6">📸</div>
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px">點此上傳病歷照片（可一次選多張）</div>
             <div style="font-size:12px;color:var(--muted)">支援 JPG、PNG ・ 手機拍照 ・ 拖曳上傳 ・ 最多 8 張</div>
             <input type="file" id="ai-file-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handleAIFiles(this)">
           </div>
@@ -434,7 +569,7 @@ async function vCase(){
           <div id="ai-thumbs" style="display:none;margin-top:14px">
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選擇的照片 <span id="ai-img-count"></span></div>
             <div id="ai-thumbs-grid" style="display:flex;gap:8px;flex-wrap:wrap"></div>
-            <div id="ai-status" style="margin-top:12px;padding:12px 16px;border-radius:10px;background:#fff;border:1px solid var(--border);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px">
+            <div id="ai-status" style="margin-top:12px;padding:12px 16px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px">
               <span id="ai-status-icon">🟡</span>
               <span id="ai-status-msg">準備就緒，按下「開始辨識」</span>
             </div>
@@ -447,7 +582,7 @@ async function vCase(){
           <!-- 辨識結果 -->
           <div id="ai-result" style="display:none;margin-top:16px">
             <div style="font-size:13px;font-weight:800;color:var(--navy);margin-bottom:10px">📋 AI 辨識結果（請確認後再套用）</div>
-            <div id="ai-result-list" style="background:#fff;border-radius:10px;border:1px solid var(--border);overflow:hidden;max-height:320px;overflow-y:auto"></div>
+            <div id="ai-result-list" style="background:var(--card);border-radius:12px;border:1px solid var(--border2);overflow:hidden;max-height:320px;overflow-y:auto"></div>
             <div style="display:flex;gap:10px;margin-top:12px">
               <button onclick="applyAIResult()" class="btn btn-success" style="flex:1;justify-content:center">✅ 套用到表單</button>
               <button onclick="resetAIScan()" class="btn btn-outline">重新辨識</button>
@@ -456,9 +591,12 @@ async function vCase(){
         </div>
       </div>
 
-      ${Object.entries(secs).map(([name,sec])=>`
-        <div class="fsection">
-          <div class="fsection-hd" style="background:${sec.color}">${name}</div>
+    ${Object.entries(secs).map(([name,sec],idx)=>`
+        <div class="fsection" style="animation-delay:${idx*0.05}s">
+          <div class="fsection-hd" style="background:${sec.color}14;border-bottom:1px solid ${sec.color}22;color:${sec.color};">
+            <span class="fsection-hd-dot" style="background:${sec.color}"></span>
+            ${name}
+          </div>
           <div class="fsection-bd"><div class="sgrid">
             ${sec.fields.map(f=>`
               <div class="fg">
@@ -592,7 +730,7 @@ function setAIStatus(state,msg){
   if(!el)return;
   document.getElementById('ai-status-icon').textContent=icons[state]||'⏳';
   document.getElementById('ai-status-msg').textContent=msg;
-  el.style.background=state==='done'?'#f0fdf4':state==='error'?'#fff5f5':'#fff';
+  el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'#FDFAF6';
 }
 
 async function startAIScan(){
@@ -889,18 +1027,18 @@ async function showSyncModal(pid){
         <div class="modal-bd" style="padding-bottom:8px">
 
           <!-- 匯出區 -->
-          <div style="background:#f0f8ff;border-radius:12px;padding:16px;margin-bottom:16px;border:1.5px solid #bfdbfe">
-            <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:4px">📤 匯出資料給別人</div>
+          <div style="background:#EEF7F4;border-radius:12px;padding:16px;margin-bottom:16px;border:1px solid #C5E0D8">
+            <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:4px">📤 匯出資料給別人</div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:12px">選擇要匯出的 Project，產生 JSON 檔案後傳給協助者</div>
             <div id="export-proj-list">${projOptions}</div>
-            <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doExportJSON()">📥 下載 JSON 檔案</button>
+            <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doExportJSON()">下載 JSON 檔案</button>
           </div>
 
           <!-- 匯入區 -->
-          <div style="background:#f0fdf4;border-radius:12px;padding:16px;border:1.5px solid #bbf7d0">
-            <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:4px">📨 匯入別人回傳的資料</div>
+          <div style="background:var(--gold-light);border-radius:12px;padding:16px;border:1px solid #E0D0A8">
+            <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:4px">📨 匯入別人回傳的資料</div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:12px">選擇協助者回傳的 JSON 檔案，資料會自動合併更新</div>
-            <label style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:2px dashed #86efac;border-radius:10px;cursor:pointer;background:#fff;font-size:13px;font-weight:700;color:var(--teal)">
+            <label style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:1.5px dashed #C9B070;border-radius:10px;cursor:pointer;background:rgba(255,255,255,.6);font-size:13px;font-weight:600;color:var(--gold)">
               <span>📁 選擇 JSON 檔案</span>
               <input type="file" accept=".json" id="import-file" style="display:none" onchange="doImportJSON(this)">
             </label>
@@ -962,13 +1100,13 @@ async function doImportJSON(input){
         }
       }
     }
-    resultEl.innerHTML=`<div style="color:var(--teal);font-weight:700;padding:8px 10px;background:#f0fdf4;border-radius:8px">
+    resultEl.innerHTML=`<div style="color:var(--sage);font-weight:700;padding:10px 12px;background:#EEF7F4;border-radius:8px;font-size:13px">
       ✅ 匯入完成！新增 ${newCases} 筆、更新 ${updCases} 筆病例${newProjs?`、新增 ${newProjs} 個 Project`:''}
     </div>`;
     // 重新整理
     setTimeout(()=>{closeSyncMod();render();},1500);
   } catch(e){
-    resultEl.innerHTML=`<div style="color:var(--red);font-weight:700;padding:8px 10px;background:#fff5f5;border-radius:8px">❌ 檔案格式錯誤，請確認是正確的 JSON 檔案</div>`;
+    resultEl.innerHTML=`<div style="color:var(--red);font-weight:700;padding:10px 12px;background:var(--red-bg);border-radius:8px;font-size:13px">❌ 檔案格式錯誤，請確認是正確的 JSON 檔案</div>`;
   }
 }
 
@@ -995,25 +1133,27 @@ function showBackupReminder(){
   document.body.insertAdjacentHTML('beforeend',`
     <div id="backup-reminder" style="
       position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-      background:var(--navy);color:#fff;border-radius:14px;
-      padding:14px 20px;display:flex;align-items:center;gap:14px;
-      box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:400;
-      animation:slideUp .25s;white-space:nowrap;
+      background:var(--ink);color:var(--cream);border-radius:16px;
+      padding:16px 22px;display:flex;align-items:center;gap:16px;
+      box-shadow:var(--shadow-lg);z-index:400;
+      animation:slideUp .25s cubic-bezier(.34,1.56,.64,1);white-space:nowrap;
+      border:1px solid rgba(255,255,255,.08);
     ">
-      <span style="font-size:20px">💾</span>
+      <div style="width:36px;height:36px;background:rgba(62,114,101,.25);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💾</div>
       <div>
-        <div style="font-size:13px;font-weight:800">距離上次備份已超過 15 分鐘</div>
-        <div style="font-size:11px;color:#93c5fd;margin-top:2px">建議匯出 JSON 備份，避免資料遺失</div>
+        <div style="font-size:13px;font-weight:700;color:var(--cream)">距離上次備份已超過 15 分鐘</div>
+        <div style="font-size:11px;color:rgba(240,235,225,.45);margin-top:2px">建議匯出 JSON 備份，避免資料遺失</div>
       </div>
       <div style="display:flex;gap:8px;margin-left:8px">
         <button onclick="quickBackup()" style="
-          padding:7px 14px;border-radius:8px;border:none;
-          background:var(--teal);color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+          padding:8px 16px;border-radius:8px;border:none;
+          background:var(--sage);color:#fff;font-size:12px;font-weight:600;cursor:pointer;
+          box-shadow:0 2px 8px rgba(62,114,101,.3);
         ">立即備份</button>
         <button onclick="dismissReminder()" style="
-          padding:7px 12px;border-radius:8px;
-          background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);
-          color:#fff;font-size:12px;font-weight:600;cursor:pointer;
+          padding:8px 14px;border-radius:8px;
+          background:rgba(240,235,225,.08);border:1px solid rgba(240,235,225,.15);
+          color:rgba(240,235,225,.7);font-size:12px;font-weight:600;cursor:pointer;
         ">稍後</button>
       </div>
     </div>`);

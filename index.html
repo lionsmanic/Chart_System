@@ -714,6 +714,8 @@ async function vCase(){
   const nameF=fields.find(f=>f.required)||fields[0];
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 病例';
   document.getElementById('hactions').innerHTML=`
+    <button class="btn btn-ghost btn-sm" onclick="expandAllSections()" title="展開所有分區">全展開</button>
+    <button class="btn btn-ghost btn-sm" onclick="collapseAllSections()" title="收起所有分區">全收起</button>
     <button class="btn btn-ghost" onclick="showAIScan()" title="拍照上傳病歷，AI自動填入欄位">📷 AI 掃描病歷</button>
     <button class="btn btn-danger btn-sm" onclick="delCase('${c.id}')">🗑️ 刪除</button>
     <button class="btn btn-success" onclick="saveCase()">💾 儲存</button>`;
@@ -832,35 +834,39 @@ async function vCase(){
 
     ${Object.entries(secs).map(([name,sec],idx)=>`
         <div class="fsection" style="animation-delay:${idx*0.05}s">
-          <div class="fsection-hd" style="background:${sec.color}14;border-bottom:1px solid ${sec.color}22;color:${sec.color};display:flex;align-items:center;justify-content:space-between;">
+          <div class="fsection-hd" onclick="toggleSection(this)"
+            style="background:${sec.color}14;border-bottom:1px solid ${sec.color}22;color:${sec.color};display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
             <div style="display:flex;align-items:center;gap:10px;">
               <span class="fsection-hd-dot" style="background:${sec.color}"></span>
               <span>${name}</span>
               <span style="font-size:11px;opacity:.55;font-weight:500">${sec.fields.length} 個欄位</span>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
-              <button onclick="showSectionAIScan('${escH(name)}')"
+              <button onclick="event.stopPropagation();showSectionAIScan('${escH(name)}')"
                 style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${sec.color}40;background:${sec.color}10;color:${sec.color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
                 onmouseenter="this.style.background='${sec.color}22'" onmouseleave="this.style.background='${sec.color}10'">
                 📷 AI 掃此區
               </button>
+              <span class="sec-toggle-icon" style="font-size:13px;opacity:.5;transition:transform .2s;display:inline-block;transform:rotate(-90deg)">▼</span>
             </div>
           </div>
-          ${sectionNotes[name]?`
-          <div style="padding:10px 16px;background:${sec.color}08;border-left:1px solid ${sec.color}20;border-right:1px solid ${sec.color}20;display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:13px;flex-shrink:0;opacity:.55;margin-top:1px">📋</span>
-            <div style="flex:1">
-              <div style="font-size:10px;font-weight:700;color:${sec.color};opacity:.7;letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">AI 判讀備註</div>
-              <div style="font-size:13px;color:var(--ink2);line-height:1.7;white-space:pre-wrap;word-break:break-word">${escH(sectionNotes[name])}</div>
-            </div>
-          </div>`:''}
-          <div class="fsection-bd"><div class="sgrid">
-            ${sec.fields.map(f=>`
-              <div class="fg">
-                <label class="flabel ${f.required?'req':''}">${escH(f.label)}</label>
-                ${fInput(f,formData[f.id]||'')}
-              </div>`).join('')}
-          </div></div>
+          <div class="fsection-body" style="display:none">
+            ${sectionNotes[name]?`
+            <div style="padding:10px 16px;background:${sec.color}08;border-left:1px solid ${sec.color}20;border-right:1px solid ${sec.color}20;display:flex;gap:8px;align-items:flex-start">
+              <span style="font-size:13px;flex-shrink:0;opacity:.55;margin-top:1px">📋</span>
+              <div style="flex:1">
+                <div style="font-size:10px;font-weight:700;color:${sec.color};opacity:.7;letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">AI 判讀備註</div>
+                <div style="font-size:13px;color:var(--ink2);line-height:1.7;white-space:pre-wrap;word-break:break-word">${escH(sectionNotes[name])}</div>
+              </div>
+            </div>`:''}
+            <div class="fsection-bd"><div class="sgrid">
+              ${sec.fields.map(f=>`
+                <div class="fg">
+                  <label class="flabel ${f.required?'req':''}">${escH(f.label)}</label>
+                  ${fInput(f,formData[f.id]||'')}
+                </div>`).join('')}
+            </div></div>
+          </div>
         </div>`).join('')}
       <div style="height:80px"></div>
     </div>`;
@@ -875,6 +881,18 @@ async function vCase(){
         if(h) h.textContent=e.target.value||'新病例';
       }
     });
+  });
+  // 初始化：有填過資料的分區自動展開，空白分區收起
+  document.querySelectorAll('.fsection').forEach(sec=>{
+    const body=sec.querySelector('.fsection-body');
+    const icon=sec.querySelector('.sec-toggle-icon');
+    if(!body) return;
+    const hasFilled=sec.querySelectorAll('[data-fid]');
+    const anyFilled=[...hasFilled].some(el=>el.value&&el.value.trim());
+    if(anyFilled){
+      body.style.display='';
+      if(icon) icon.style.transform='rotate(0deg)';
+    }
   });
   // 初始化補充備註高度
   const pnTA=document.getElementById('photo-note-input');
@@ -1321,6 +1339,24 @@ function applyAIResult(){
   document.getElementById('savebar').classList.add('on');
   hideAIScan();
   toast(`✅ 已套用 ${Object.keys(aiParsedResult).length} 個欄位，請確認後儲存`);
+}
+
+// ── 分區收合 ──────────────────────────────────────────────────────────────
+function toggleSection(hd){
+  const body=hd.closest('.fsection').querySelector('.fsection-body');
+  const icon=hd.querySelector('.sec-toggle-icon');
+  if(!body) return;
+  const open=body.style.display!=='none';
+  body.style.display=open?'none':'';
+  if(icon) icon.style.transform=open?'rotate(-90deg)':'rotate(0deg)';
+}
+function expandAllSections(){
+  document.querySelectorAll('.fsection-body').forEach(b=>b.style.display='');
+  document.querySelectorAll('.sec-toggle-icon').forEach(i=>i.style.transform='rotate(0deg)');
+}
+function collapseAllSections(){
+  document.querySelectorAll('.fsection-body').forEach(b=>b.style.display='none');
+  document.querySelectorAll('.sec-toggle-icon').forEach(i=>i.style.transform='rotate(-90deg)');
 }
 
 async function saveCase(){

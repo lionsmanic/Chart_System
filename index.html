@@ -1393,6 +1393,114 @@ function startBackupTimer(){
   if(!localStorage.getItem(BACKUP_KEY)) markBackupSeen();
 }
 
+// ── 新裝置歡迎畫面 ──────────────────────────────────────────────────────────
+const FIRST_VISIT_KEY = 'patientSysInstalled';
+
+async function checkFirstVisit(){
+  const isInstalled = localStorage.getItem(FIRST_VISIT_KEY);
+  if(isInstalled) return; // 已用過，不顯示
+
+  const projs = await dbAll('projects');
+  if(projs.length > 0){
+    // 本機已有資料，標記為已安裝
+    localStorage.setItem(FIRST_VISIT_KEY, '1');
+    return;
+  }
+
+  // 新裝置且無資料 → 顯示歡迎畫面
+  showWelcomeScreen();
+}
+
+function showWelcomeScreen(){
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="welcome-modal">
+      <div class="modal" style="max-width:520px">
+
+        <div style="background:var(--ink);padding:32px 30px 28px;border-radius:19px 19px 0 0;text-align:center;position:relative;overflow:hidden">
+          <div style="position:absolute;top:-50px;right:-50px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(62,114,101,.35) 0%,transparent 70%)"></div>
+          <div style="width:56px;height:56px;background:linear-gradient(135deg,var(--sage),var(--sage2));border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px;box-shadow:0 4px 16px rgba(62,114,101,.4);position:relative;z-index:1">✚</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;color:#fff;margin-bottom:8px;position:relative;z-index:1">歡迎使用病例管理系統</div>
+          <div style="font-size:14px;color:rgba(240,235,225,.5);position:relative;z-index:1">偵測到這是新裝置，本機尚無任何資料</div>
+        </div>
+
+        <div class="modal-bd">
+
+          <!-- 選項一：匯入備份 -->
+          <div style="border:1.5px solid var(--sage);border-radius:14px;padding:20px;margin-bottom:14px;cursor:pointer;transition:all .2s;background:var(--sage-light)"
+            onmouseenter="this.style.background='#D8EDE8'" onmouseleave="this.style.background='var(--sage-light)'">
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="width:44px;height:44px;background:var(--sage);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">📂</div>
+              <div>
+                <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:3px">我有之前的備份 JSON</div>
+                <div style="font-size:13px;color:var(--muted)">匯入後立即恢復所有 Projects、欄位和病例資料</div>
+              </div>
+            </div>
+            <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;padding:12px;border:1.5px dashed rgba(62,114,101,.4);border-radius:10px;cursor:pointer;background:rgba(255,255,255,.6);font-size:14px;font-weight:600;color:var(--sage)">
+              選擇 JSON 檔案 →
+              <input type="file" accept=".json" style="display:none" onchange="doWelcomeImport(this)">
+            </label>
+          </div>
+
+          <!-- 選項二：全新開始 -->
+          <div style="border:1.5px solid var(--border2);border-radius:14px;padding:20px;cursor:pointer;transition:all .2s"
+            onclick="startFresh()"
+            onmouseenter="this.style.background='var(--cream)'" onmouseleave="this.style.background=''">
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="width:44px;height:44px;background:var(--gold-light);border:1.5px solid #E0D0A8;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">✨</div>
+              <div>
+                <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:3px">全新開始</div>
+                <div style="font-size:13px;color:var(--muted)">建立全新的資料庫，從頭建立 Projects 和欄位</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="welcome-import-result" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function doWelcomeImport(input){
+  const file = input.files[0];
+  if(!file) return;
+  const resultEl = document.getElementById('welcome-import-result');
+  try{
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    if(!payload.version || !payload.projects) throw new Error('格式錯誤');
+
+    resultEl.innerHTML=`<div style="padding:12px 14px;background:#EEF7F4;border-radius:10px;font-size:13px;color:var(--sage);font-weight:600;text-align:center">⏳ 匯入中，請稍候...</div>`;
+
+    let newCases=0, newProjs=0;
+    for(const projData of payload.projects){
+      const {cases,...proj} = projData;
+      await dbPut('projects', proj); newProjs++;
+      for(const c of (cases||[])){ await dbPut('cases', c); newCases++; }
+    }
+
+    localStorage.setItem(FIRST_VISIT_KEY, '1');
+    markBackupSeen();
+
+    resultEl.innerHTML=`<div style="padding:12px 14px;background:#EEF7F4;border-radius:10px;font-size:14px;color:var(--sage);font-weight:700;text-align:center">✅ 匯入完成！${newProjs} 個 Project、${newCases} 筆病例已恢復</div>`;
+
+    setTimeout(()=>{
+      document.getElementById('welcome-modal')?.remove();
+      vProjects();
+      toast('✅ 資料已恢復，歡迎回來！');
+    }, 1400);
+
+  } catch(e){
+    resultEl.innerHTML=`<div style="padding:12px 14px;background:var(--red-bg);border-radius:10px;font-size:13px;color:var(--red);font-weight:600;text-align:center">❌ 檔案格式錯誤，請確認是正確的 JSON 備份檔</div>`;
+  }
+}
+
+function startFresh(){
+  localStorage.setItem(FIRST_VISIT_KEY,'1');
+  markBackupSeen();
+  document.getElementById('welcome-modal')?.remove();
+  toast('✨ 歡迎！請先建立您的第一個 Project');
+}
+
 // 關閉視窗前提醒
 window.addEventListener('beforeunload', e=>{
   if(dirty){
@@ -1402,7 +1510,11 @@ window.addEventListener('beforeunload', e=>{
 });
 
 // ── Boot ───────────────────────────────────────────────────────────────────
-openDB().then(()=>{ vProjects(); startBackupTimer(); });
+openDB().then(async ()=>{
+  await vProjects();
+  startBackupTimer();
+  await checkFirstVisit();
+});
 </script>
 </body>
 </html>

@@ -1184,54 +1184,96 @@ function pickSection(name){
 function editFieldInline(fid){
   const f=editFields.find(x=>x.id===fid);
   if(!f) return;
-  const optLine=f.type==='select'?`
-    <div class="fg" style="margin-bottom:12px">
-      <label class="flabel">選項（逗號分隔）</label>
-      <input class="finput" id="ef-options" value="${escH(f.options||'')}">
-    </div>`:'';
   document.body.insertAdjacentHTML('beforeend',`
     <div class="overlay" id="ef-modal" onclick="if(event.target.id==='ef-modal')closeEF()">
-      <div class="modal" style="max-width:480px">
+      <div class="modal" style="max-width:500px">
         <div class="modal-hd"><span class="modal-title">編輯欄位</span><button class="btn-icon" onclick="closeEF()">✕</button></div>
         <div class="modal-bd">
-          <div class="fg"><label class="flabel">欄位名稱</label><input class="finput" id="ef-label" value="${escH(f.label)}"></div>
-          <div class="fg"><label class="flabel">所屬分區</label>
+
+          <div class="fg">
+            <label class="flabel">欄位名稱 <span style="color:var(--red)">＊</span></label>
+            <input class="finput" id="ef-label" value="${escH(f.label)}">
+          </div>
+
+          <div class="fg">
+            <label class="flabel">所屬分區</label>
             <input class="finput" id="ef-section" value="${escH(f.section)}" list="ef-sec-list">
             <datalist id="ef-sec-list">${getSections().map(s=>`<option value="${escH(s)}">`).join('')}</datalist>
           </div>
-          ${optLine}
+
+          <div class="fg">
+            <label class="flabel">欄位類型</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="ef-tchips">
+              ${['text','number','date','textarea','select'].map(t=>`
+                <div class="tchip ${t===f.type?'sel':''}" data-t="${t}" onclick="selEFType(this)">${TYPE_NAMES[t]}</div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="fg" id="ef-opt-wrap" style="${f.type==='select'?'':'display:none'}">
+            <label class="flabel">下拉選項（逗號分隔）</label>
+            <input class="finput" id="ef-options" value="${escH(f.options||'')}" placeholder="例：良好,普通,不佳">
+            <div style="font-size:12px;color:var(--muted);margin-top:5px">目前選項：
+              <span id="ef-opts-preview" style="color:var(--sage);font-weight:600">${f.options||'（尚未設定）'}</span>
+            </div>
+          </div>
+
           <div class="fg" style="margin-bottom:0">
             <label class="flabel">分區顏色</label>
             <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
               ${COLORS.map(c=>`<div class="cdot ef-cdot ${c===f.sectionColor?'act':''}" style="background:${c}" data-c="${c}" onclick="selEFColor(this)"></div>`).join('')}
             </div>
           </div>
+
         </div>
         <div class="modal-ft">
           <button class="btn btn-outline" onclick="closeEF()">取消</button>
-          <button class="btn btn-primary" onclick="saveFieldEdit('${fid}')">儲存</button>
+          <button class="btn btn-primary" onclick="saveFieldEdit('${fid}')">儲存變更</button>
         </div>
       </div>
     </div>`);
+
+  // 即時預覽選項
+  document.getElementById('ef-options')?.addEventListener('input', e=>{
+    const prev = document.getElementById('ef-opts-preview');
+    if(prev) prev.textContent = e.target.value || '（尚未設定）';
+  });
 }
+
 function closeEF(){document.getElementById('ef-modal')?.remove();}
-function selEFColor(el){document.querySelectorAll('.ef-cdot').forEach(d=>d.classList.remove('act'));el.classList.add('act');}
+
+function selEFColor(el){
+  document.querySelectorAll('.ef-cdot').forEach(d=>d.classList.remove('act'));
+  el.classList.add('act');
+}
+
+function selEFType(el){
+  document.querySelectorAll('#ef-tchips .tchip').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+  // 切換到 select 時顯示選項欄，其他類型隱藏
+  const wrap = document.getElementById('ef-opt-wrap');
+  if(wrap) wrap.style.display = el.dataset.t==='select' ? '' : 'none';
+}
+
 function saveFieldEdit(fid){
   const f=editFields.find(x=>x.id===fid);
   if(!f) return;
   const newLabel=document.getElementById('ef-label').value.trim();
   const newSec=document.getElementById('ef-section').value.trim()||f.section;
   const newColor=document.querySelector('.ef-cdot.act')?.dataset.c||f.sectionColor;
-  const newOpts=document.getElementById('ef-options')?.value.trim()||f.options||'';
+  const newType=document.querySelector('#ef-tchips .tchip.sel')?.dataset.t||f.type;
+  const newOpts=document.getElementById('ef-options')?.value.trim()||'';
   if(!newLabel){alert('請輸入欄位名稱');return;}
-  f.label=newLabel; f.section=newSec; f.sectionColor=newColor; f.options=newOpts;
-  // 同步同分區其他欄位的顏色
+  f.label=newLabel; f.section=newSec; f.sectionColor=newColor;
+  f.type=newType;
+  f.options = newType==='select' ? newOpts : '';
+  // 同步同分區其他欄位顏色
   editFields.forEach(x=>{if(x.section===newSec) x.sectionColor=newColor;});
   closeEF();
   document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
   initDragDrop();
   document.getElementById('fc-badge').textContent=editFields.length+' 個欄位';
-  toast('欄位已更新');
+  toast(`欄位「${newLabel}」已更新`);
 }
 
 // ── 拖曳排序 ──────────────────────────────────────────────────────────────

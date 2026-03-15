@@ -734,6 +734,40 @@ async function vCase(){
         <div class="case-hero-meta">建立於 ${new Date(c.createdAt).toLocaleString('zh-TW')} ${c.updatedAt?'· 最後儲存 '+new Date(c.updatedAt).toLocaleString('zh-TW'):''}</div>
       </div>
 
+      ${(()=>{
+        // 彙整所有備註，去重後顯示
+        const allNotes=Object.entries(sectionNotes)
+          .filter(([sec,note])=>note&&note.trim()&&secs[sec])
+          .map(([sec,note])=>({sec,note:note.trim(),color:secs[sec]?.color||'#3E7265'}));
+        const seen=new Set();
+        const unique=allNotes.filter(({note})=>{
+          const norm=note.replace(/\s+/g,' ').toLowerCase();
+          if(seen.has(norm)) return false;
+          seen.add(norm); return true;
+        });
+        if(!unique.length) return '';
+        return `
+        <div style="border-radius:14px;overflow:hidden;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,30,34,.08);border:1px solid var(--border2)">
+          <div style="background:var(--ink);padding:13px 18px;display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">📷</span>
+            <div>
+              <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">拍照清單 — 請先備齊以下頁面的截圖</div>
+              <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:2px">依序拍完後，再至各分區點「AI 掃此區」上傳</div>
+            </div>
+          </div>
+          <div style="background:var(--card);padding:0">
+            ${unique.map(({sec,note,color},i)=>`
+              <div style="display:flex;gap:12px;align-items:flex-start;padding:13px 18px;${i<unique.length-1?'border-bottom:1px solid var(--border2)':''}">
+                <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;margin-top:5px"></div>
+                <div style="flex:1">
+                  <div style="font-size:11px;font-weight:700;color:${color};letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">${escH(sec)}</div>
+                  <div style="font-size:13px;color:var(--ink2);line-height:1.7;white-space:pre-wrap;word-break:break-word">${escH(note)}</div>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+      })()}
+
       <!-- 全域 AI 掃描區塊（預設收起，作為備用）-->
       <div id="ai-scan-panel" style="display:none;margin-bottom:20px;border-radius:14px;border:2px solid #bfdbfe;overflow:hidden;box-shadow:0 2px 16px rgba(59,130,246,.1)">
         <div style="background:var(--ink);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)">

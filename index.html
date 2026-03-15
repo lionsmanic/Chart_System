@@ -599,10 +599,8 @@ async function vProject(){
     <button class="btn btn-ghost" onclick="exportCSV('${p.id}')">📤 匯出 CSV</button>
     <button class="btn btn-ghost" onclick="vSettings('${p.id}')">⚙️ 欄位設定</button>
     <button class="btn btn-primary" onclick="newCase('${p.id}')">＋ 新增病例</button>`;
-  const nameF=fields.find(f=>f.required)||fields[0];
-  const dateF=fields.find(f=>f.type==='date');
-  const diagF=fields.find(f=>f.label.includes('診斷'));
-  const listCols=[nameF,dateF,diagF].filter(Boolean).slice(0,3);
+  // 病例列表欄位：直接取欄位設定的前兩個欄位
+  const listCols = fields.slice(0, 2);
   document.getElementById('app').innerHTML=`
     <div class="bc"><a onclick="goHome()">首頁</a><span class="bc-sep">›</span><span>${escH(p.name)}</span></div>
     <div class="proj-hero">
@@ -635,7 +633,7 @@ function buildList(cases,fields,cols,p){
         ${cases.map((c,i)=>`
           <tr onclick="goCase('${c.id}','${p.id}')">
             <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${String(i+1).padStart(3,'0')}</td>
-            ${cols.map(f=>`<td class="${f.required?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
+            ${cols.map((f,ci)=>`<td class="${ci===0?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
             <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
             <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button></td>
           </tr>`).join('')}

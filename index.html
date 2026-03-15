@@ -713,6 +713,7 @@ async function vCase(){
   // Group by section
   const secs={};
   fields.forEach(f=>{(secs[f.section]??={color:f.sectionColor||'#1d6fa4',fields:[]}).fields.push(f);});
+  const sectionNotes = p.sectionNotes||{};
   document.getElementById('app').innerHTML=`
     <div class="bc">
       <a onclick="goHome()">首頁</a><span class="bc-sep">›</span>
@@ -785,11 +786,14 @@ async function vCase(){
               <span>${name}</span>
               <span style="font-size:11px;opacity:.55;font-weight:500">${sec.fields.length} 個欄位</span>
             </div>
-            <button onclick="showSectionAIScan('${escH(name)}')"
-              style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${sec.color}40;background:${sec.color}10;color:${sec.color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
-              onmouseenter="this.style.background='${sec.color}22'" onmouseleave="this.style.background='${sec.color}10'">
-              📷 AI 掃此區
-            </button>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${sectionNotes[name]?`<span style="font-size:11px;color:${sec.color};opacity:.75;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default" title="${escH(sectionNotes[name])}">📋 ${escH(sectionNotes[name])}</span>`:''}
+              <button onclick="showSectionAIScan('${escH(name)}')"
+                style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${sec.color}40;background:${sec.color}10;color:${sec.color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+                onmouseenter="this.style.background='${sec.color}22'" onmouseleave="this.style.background='${sec.color}10'">
+                📷 AI 掃此區
+              </button>
+            </div>
           </div>
           <div class="fsection-bd"><div class="sgrid">
             ${sec.fields.map(f=>`
@@ -835,6 +839,7 @@ async function showSectionAIScan(sectionName){
   const p = await dbGet('projects', PID);
   const allFields = p.fields || DEFAULT_FIELDS;
   secScanFields = allFields.filter(f => f.section === sectionName);
+  const noteText = (p.sectionNotes||{})[sectionName]||'';
   secScanImages = [];
   secScanResult = {};
 
@@ -850,6 +855,10 @@ async function showSectionAIScan(sectionName){
         <div style="background:var(--ink);padding:20px 24px 16px;border-radius:19px 19px 0 0;position:relative">
           <div style="font-size:15px;font-weight:800;color:var(--cream);margin-bottom:4px">📷 AI 掃描：${escH(sectionName)}</div>
           <div style="font-size:12px;color:rgba(240,235,225,.45)">上傳照片，AI 只填入此區的 ${secScanFields.length} 個欄位</div>
+          ${noteText?`<div style="margin-top:10px;padding:9px 13px;background:rgba(255,255,255,.07);border-radius:8px;border-left:3px solid rgba(240,235,225,.3)">
+            <div style="font-size:10px;font-weight:700;color:rgba(240,235,225,.4);letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">📋 AI 判讀備註</div>
+            <div style="font-size:13px;color:rgba(240,235,225,.75);line-height:1.6">${escH(noteText)}</div>
+          </div>`:''}
           <button onclick="closeSecAI()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(240,235,225,.7);border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
         </div>
 
@@ -1272,10 +1281,13 @@ async function delCase(cid){
 }
 
 // ── Settings (field builder) ───────────────────────────────────────────────
+let editSectionNotes={};  // { sectionName: noteText }
+
 async function vSettings(pid){
   pid=pid||PID; PID=pid; VIEW='settings';
   const p=await dbGet('projects',pid);
   editFields=JSON.parse(JSON.stringify(p.fields||DEFAULT_FIELDS));
+  editSectionNotes=JSON.parse(JSON.stringify(p.sectionNotes||{}));
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
   document.getElementById('hactions').innerHTML=`
     <button class="btn btn-outline" onclick="goProject('${pid}')">← 返回</button>
@@ -1349,6 +1361,7 @@ function renderFieldsBySection(){
   return sections.map(sec=>{
     const color = editFields.find(f=>f.section===sec)?.sectionColor||'#3E7265';
     const fields = editFields.filter(f=>f.section===sec);
+    const noteVal = editSectionNotes[sec]||'';
     return `
       <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px;transition:opacity .15s"
         draggable="true"
@@ -1370,6 +1383,20 @@ function renderFieldsBySection(){
             onmouseenter="this.style.background='${color}28'" onmouseleave="this.style.background='${color}15'">
             ＋ 新增欄位
           </button>
+        </div>
+        <!-- 📋 AI 拍照備註列 -->
+        <div style="padding:8px 12px 9px;background:${color}07;border-left:1px solid ${color}28;border-right:1px solid ${color}28;display:flex;align-items:flex-start;gap:8px">
+          <span style="font-size:14px;margin-top:8px;flex-shrink:0;opacity:.55">📋</span>
+          <div style="flex:1">
+            <div style="font-size:10px;font-weight:700;color:${color};opacity:.75;letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">AI 判讀備註（要拍哪幾頁）</div>
+            <textarea class="sec-note-input" data-sec="${escH(sec)}"
+              placeholder="例：請拍「就診記錄」→「處方籤」頁面，需包含藥名與劑量..."
+              oninput="editSectionNotes[this.dataset.sec]=this.value"
+              style="width:100%;border:1.5px solid ${color}25;border-radius:8px;padding:8px 11px;font-size:13px;line-height:1.65;color:var(--ink);background:rgba(255,255,255,.75);resize:vertical;min-height:52px;max-height:130px;outline:none;font-family:inherit;transition:border .15s,background .15s"
+              onfocus="this.style.borderColor='${color}80';this.style.background='#fff'"
+              onblur="this.style.borderColor='${color}25';this.style.background='rgba(255,255,255,.75)'"
+              >${escH(noteVal)}</textarea>
+          </div>
         </div>
         <!-- 欄位列表 -->
         <div class="sec-fields" data-section="${escH(sec)}" style="border:1px solid ${color}28;border-radius:0 0 9px 9px;overflow:hidden">
@@ -1579,9 +1606,12 @@ function startRenameSection(el){
   input.focus(); input.select();
   const commit=()=>{
     const newName=input.value.trim()||oldName;
-    // 更新 editFields 中所有同分區欄位
     editFields.forEach(f=>{if(f.section===oldName) f.section=newName;});
-    // 重繪
+    // 同步備註 key
+    if(newName!==oldName && editSectionNotes[oldName]!==undefined){
+      editSectionNotes[newName]=editSectionNotes[oldName];
+      delete editSectionNotes[oldName];
+    }
     document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
     initDragDrop();
     if(newName!==oldName) toast(`分區已重新命名為「${newName}」`);
@@ -1785,6 +1815,11 @@ function removeField(fid){
 async function saveSettings(pid){
   const p=await dbGet('projects',pid);
   p.fields=editFields;
+  // 收集所有分區備註（從 DOM 讀取最新值）
+  document.querySelectorAll('.sec-note-input').forEach(el=>{
+    editSectionNotes[el.dataset.sec]=el.value;
+  });
+  p.sectionNotes=editSectionNotes;
   await dbPut('projects',p);
   toast('✅ 欄位設定已儲存');
   goProject(pid);

@@ -794,7 +794,6 @@ async function vCase(){
               <span style="font-size:11px;opacity:.55;font-weight:500">${sec.fields.length} 個欄位</span>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
-              ${sectionNotes[name]?`<span style="font-size:11px;color:${sec.color};opacity:.75;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default" title="${escH(sectionNotes[name])}">📋 ${escH(sectionNotes[name])}</span>`:''}
               <button onclick="showSectionAIScan('${escH(name)}')"
                 style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${sec.color}40;background:${sec.color}10;color:${sec.color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
                 onmouseenter="this.style.background='${sec.color}22'" onmouseleave="this.style.background='${sec.color}10'">
@@ -802,6 +801,14 @@ async function vCase(){
               </button>
             </div>
           </div>
+          ${sectionNotes[name]?`
+          <div style="padding:10px 16px;background:${sec.color}08;border-left:1px solid ${sec.color}20;border-right:1px solid ${sec.color}20;display:flex;gap:8px;align-items:flex-start">
+            <span style="font-size:13px;flex-shrink:0;opacity:.55;margin-top:1px">📋</span>
+            <div style="flex:1">
+              <div style="font-size:10px;font-weight:700;color:${sec.color};opacity:.7;letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">AI 判讀備註</div>
+              <div style="font-size:13px;color:var(--ink2);line-height:1.7;white-space:pre-wrap;word-break:break-word">${escH(sectionNotes[name])}</div>
+            </div>
+          </div>`:''}
           <div class="fsection-bd"><div class="sgrid">
             ${sec.fields.map(f=>`
               <div class="fg">

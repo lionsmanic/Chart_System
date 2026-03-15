@@ -769,8 +769,8 @@ async function vCase(){
               <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px">📝 補充備註</div>
               <textarea id="photo-note-input"
                 placeholder="可在此補充拍照注意事項、特殊說明或待辦事項..."
-                oninput="formData['__photoNote']=this.value;dirty=true;document.getElementById('savebar').classList.add('on')"
-                style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 13px;font-size:14px;line-height:1.7;color:var(--ink);background:var(--cream);resize:vertical;min-height:72px;outline:none;font-family:inherit;transition:border .18s,background .18s;white-space:pre-wrap;word-break:break-word"
+                oninput="formData['__photoNote']=this.value;dirty=true;document.getElementById('savebar').classList.add('on');autoResizeTA(this)"
+                style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 13px;font-size:14px;line-height:1.7;color:var(--ink);background:var(--cream);resize:none;overflow:hidden;min-height:72px;outline:none;font-family:inherit;transition:border .18s,background .18s;white-space:pre-wrap;word-break:break-word"
                 onfocus="this.style.borderColor='var(--sage)';this.style.background='#fff'"
                 onblur="this.style.borderColor='var(--border)';this.style.background='var(--cream)'"
                 >${escH(casePhotoNote)}</textarea>
@@ -876,6 +876,9 @@ async function vCase(){
       }
     });
   });
+  // 初始化補充備註高度
+  const pnTA=document.getElementById('photo-note-input');
+  if(pnTA) autoResizeTA(pnTA);
 }
 
 function fInput(f,v){
@@ -2266,6 +2269,7 @@ function closeMobMenu(){
 
 // ── Util ───────────────────────────────────────────────────────────────────
 function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function autoResizeTA(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
 
 // Cmd+S
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();if(VIEW==='case'&&dirty)saveCase();}});

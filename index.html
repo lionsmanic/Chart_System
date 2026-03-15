@@ -618,7 +618,7 @@ async function vProject(){
       <button class="tab" id="t-table" onclick="switchTab('table')">📊 總覽表</button>
     </div>
     <div id="tc-list">${buildList(cases,fields,listCols,p)}</div>
-    <div id="tc-table" style="display:none">${buildTable(cases,fields)}</div>`;
+    <div id="tc-table" style="display:none">${buildTable(cases,fields,p)}</div>`;
 }
 
 function buildList(cases,fields,cols,p){
@@ -641,20 +641,42 @@ function buildList(cases,fields,cols,p){
     </table></div>`;
 }
 
-function buildTable(cases,fields){
+function buildTable(cases,fields,p){
   if(!cases.length) return `<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">尚無資料</div></div>`;
   return `
-    <div class="twrap"><table>
-      <thead><tr><th>#</th>${fields.map(f=>`<th>${escH(f.label)}</th>`).join('')}</tr></thead>
-      <tbody>
-        ${cases.map((c,i)=>`
-          <tr onclick="goCase('${c.id}','${PID}')">
-            <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${String(i+1).padStart(3,'0')}</td>
-            ${fields.map(f=>`<td>${escH(c.data[f.id]||'')}</td>`).join('')}
-          </tr>`).join('')}
-      </tbody>
-    </table></div>
-    <div style="font-size:12px;color:var(--muted);margin-top:8px">點擊任一列可開啟完整表單編輯</div>`;
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+      <span>💡 點任一儲存格可直接修改，修改後自動儲存</span>
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--card);font-size:12px;font-weight:700;color:var(--ink2);cursor:pointer;transition:all .15s"
+          onmouseenter="this.style.borderColor='var(--sage)';this.style.color='var(--sage)'"
+          onmouseleave="this.style.borderColor='var(--border)';this.style.color='var(--ink2)'">
+          📥 匯入 CSV 更新
+          <input type="file" accept=".csv" style="display:none" onchange="importCSV(this,'${p.id}')">
+        </label>
+      </span>
+    </div>
+    <div class="twrap" style="overflow-x:auto">
+      <table id="summary-table" style="min-width:100%">
+        <thead><tr>
+          <th style="width:52px">#</th>
+          ${fields.map(f=>`<th style="min-width:110px">${escH(f.label)}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${cases.map((c,i)=>`
+            <tr>
+              <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px;text-align:center">${c.caseNum||String(i+1).padStart(3,'0')}</td>
+              ${fields.map(f=>`
+                <td class="tbl-cell" data-cid="${c.id}" data-fid="${f.id}" data-type="${f.type}" data-opts="${escH(f.options||'')}"
+                  onclick="startCellEdit(this)"
+                  style="cursor:pointer;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .12s"
+                  onmouseenter="this.style.background='#f0f8ff'" onmouseleave="if(!this.classList.contains('editing'))this.style.background=''">
+                  ${escH(c.data[f.id]||'')}
+                </td>`).join('')}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">共 ${cases.length} 筆病例 · 點擊儲存格直接編輯 · Enter 或點其他地方完成</div>`;
 }
 
 function switchTab(t){
@@ -1809,6 +1831,151 @@ async function newCase(pid){
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
+// ── 總覽表儲存格直接編輯 ──────────────────────────────────────────────────
+function startCellEdit(td){
+  if(td.classList.contains('editing')) return;
+  const cid=td.dataset.cid, fid=td.dataset.fid;
+  const type=td.dataset.type||'text';
+  const opts=(td.dataset.opts||'').split(',').filter(Boolean);
+  const curVal=td.textContent.trim();
+
+  td.classList.add('editing');
+  td.style.background='#fff';
+  td.style.padding='0';
+  td.style.boxShadow='0 0 0 2px var(--sage)';
+  td.onmouseenter=null; td.onmouseleave=null;
+  td.onclick=null;
+
+  let el;
+  if(type==='select'){
+    el=document.createElement('select');
+    el.style.cssText='width:100%;padding:8px 10px;border:none;outline:none;font-size:14px;font-family:inherit;background:#fff;cursor:pointer';
+    el.innerHTML=`<option value="">—</option>${opts.map(o=>`<option ${o===curVal?'selected':''}>${escH(o)}</option>`).join('')}`;
+  } else if(type==='textarea'){
+    el=document.createElement('textarea');
+    el.style.cssText='width:100%;min-height:72px;padding:8px 10px;border:none;outline:none;font-size:14px;font-family:inherit;resize:vertical;background:#fff';
+    el.value=curVal;
+  } else {
+    el=document.createElement('input');
+    el.type=type==='number'?'number':type==='date'?'date':type==='time'?'time':'text';
+    el.style.cssText='width:100%;padding:8px 10px;border:none;outline:none;font-size:14px;font-family:inherit;background:#fff';
+    el.value=curVal;
+  }
+
+  td.textContent='';
+  td.appendChild(el);
+  el.focus();
+  if(el.select && type!=='select') el.select();
+
+  const commit=async()=>{
+    const newVal=el.value;
+    td.classList.remove('editing');
+    td.style.boxShadow='';
+    td.style.padding='';
+    td.textContent=newVal;
+    td.style.background='';
+    td.onmouseenter=()=>td.style.background='#f0f8ff';
+    td.onmouseleave=()=>td.style.background='';
+    td.onclick=()=>startCellEdit(td);
+    if(newVal===curVal) return; // 沒變就不寫入
+    // 寫入 IndexedDB
+    const c=await dbGet('cases',cid);
+    if(!c) return;
+    c.data[fid]=newVal;
+    c.updatedAt=Date.now();
+    await dbPut('cases',c);
+    toast('✅ 已更新');
+  };
+
+  el.addEventListener('blur', commit);
+  el.addEventListener('keydown', e=>{
+    if(e.key==='Enter' && type!=='textarea'){ e.preventDefault(); el.blur(); }
+    if(e.key==='Escape'){ el.value=curVal; el.blur(); }
+  });
+}
+
+// ── CSV 匯回更新 ──────────────────────────────────────────────────────────
+async function importCSV(input, pid){
+  const file=input.files[0];
+  if(!file){ input.value=''; return; }
+  const p=await dbGet('projects',pid);
+  const fields=p.fields||DEFAULT_FIELDS;
+  const cases=await dbIdx('cases','pid',pid);
+
+  try{
+    const text=await file.text();
+    // 解析 CSV（支援帶引號的值）
+    const parseRow=row=>{
+      const result=[]; let cur='', inQ=false;
+      for(let i=0;i<row.length;i++){
+        const ch=row[i];
+        if(ch==='"'){ if(inQ&&row[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
+        else if(ch===','&&!inQ){ result.push(cur.trim()); cur=''; }
+        else cur+=ch;
+      }
+      result.push(cur.trim());
+      return result;
+    };
+
+    // 去除 BOM
+    const clean=text.replace(/^\uFEFF/,'');
+    const lines=clean.split(/\r?\n/).filter(l=>l.trim());
+    if(lines.length<2){ toast('❌ CSV 格式錯誤或無資料'); input.value=''; return; }
+
+    const headers=parseRow(lines[0]);
+    const caseNumIdx=headers.indexOf('病例號');
+    if(caseNumIdx<0){ toast('❌ 找不到「病例號」欄位，請確認是由本系統匯出的 CSV'); input.value=''; return; }
+
+    // 建立欄位 label → field 的對應表
+    const labelToField={};
+    fields.forEach(f=>{ labelToField[f.label]=f; });
+
+    let updated=0, skipped=0;
+    for(let i=1;i<lines.length;i++){
+      const row=parseRow(lines[i]);
+      if(row.length<2) continue;
+      const caseNum=row[caseNumIdx].replace(/"/g,'').trim();
+      const targetCase=cases.find(c=>c.caseNum===caseNum);
+      if(!targetCase){ skipped++; continue; }
+
+      // 找每個欄位並更新
+      let changed=false;
+      for(let j=0;j<headers.length;j++){
+        const label=headers[j].replace(/"/g,'').trim();
+        const field=labelToField[label];
+        if(!field||j>=row.length) continue;
+        const newVal=row[j].replace(/"/g,'').trim();
+        if(targetCase.data[field.id]!==newVal){
+          targetCase.data[field.id]=newVal;
+          changed=true;
+        }
+      }
+      if(changed){
+        targetCase.updatedAt=Date.now();
+        await dbPut('cases',targetCase);
+        updated++;
+      }
+    }
+
+    input.value='';
+
+    // 顯示結果 & 重新載入
+    if(updated>0){
+      toast(`✅ 已更新 ${updated} 筆病例${skipped?`（${skipped} 筆病例號未找到，已略過）`:''}`);
+      // 重新渲染總覽表
+      const newCases=await dbIdx('cases','pid',pid);
+      document.getElementById('tc-table').innerHTML=buildTable(newCases,fields,p);
+    } else {
+      toast(`ℹ️ 無資料變更${skipped?`（${skipped} 筆病例號未找到）`:''}`);
+      input.value='';
+    }
+
+  } catch(e){
+    toast('❌ CSV 解析失敗：'+e.message);
+    input.value='';
+  }
+}
+
 async function exportCSV(pid){
   const p=await dbGet('projects',pid);
   const cs=await dbIdx('cases','pid',pid);

@@ -505,7 +505,7 @@ let editFields=[];
 
 // ── Section colors ─────────────────────────────────────────────────────────
 const COLORS=['#1d6fa4','#0d9488','#7c3aed','#be185d','#b45309','#1e40af','#0f766e','#6d28d9'];
-const TYPE_NAMES={text:'文字',number:'數字',date:'日期',textarea:'長文字',select:'下拉選單'};
+const TYPE_NAMES={text:'文字',number:'數字',date:'日期',time:'時間',textarea:'長文字',select:'下拉選單'};
 
 // ── Default fields ─────────────────────────────────────────────────────────
 const DEFAULT_FIELDS=[
@@ -1290,7 +1290,7 @@ async function vSettings(pid){
           <div class="fg">
             <label class="flabel">欄位類型</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px" id="tchips">
-              ${['text','number','date','textarea','select'].map(t=>`<div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selType(this)">${TYPE_NAMES[t]}</div>`).join('')}
+              ${['text','number','date','time','textarea','select'].map(t=>`<div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selType(this)">${TYPE_NAMES[t]}</div>`).join('')}
             </div>
           </div>
           <div class="fg" id="opt-wrap" style="display:none">
@@ -1323,9 +1323,18 @@ function renderFieldsBySection(){
     const color = editFields.find(f=>f.section===sec)?.sectionColor||'#3E7265';
     const fields = editFields.filter(f=>f.section===sec);
     return `
-      <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px">
+      <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px;transition:opacity .15s"
+        draggable="true"
+        ondragstart="onSecDragStart(event,this)"
+        ondragover="onSecDragOver(event,this)"
+        ondrop="onSecDrop(event,this)"
+        ondragend="onSecDragEnd(event,this)">
         <!-- 分區標題列 -->
         <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:${color}12;border-radius:9px 9px 0 0;border:1px solid ${color}28;border-bottom:none">
+          <!-- 分區拖曳把手 -->
+          <span title="拖曳移動整個分區"
+            style="color:${color};opacity:.5;font-size:18px;cursor:grab;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:opacity .15s;user-select:none"
+            onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.5'">⠿</span>
           <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
           <span class="sec-name-label" data-sec="${escH(sec)}" style="font-size:12px;font-weight:700;color:${color};letter-spacing:1px;text-transform:uppercase;flex:1;cursor:text" onclick="startRenameSection(this)" title="點擊重新命名分區">${escH(sec)}</span>
           <span style="font-size:11px;color:var(--muted);margin-right:6px">${fields.length} 個欄位</span>
@@ -1341,6 +1350,74 @@ function renderFieldsBySection(){
         </div>
       </div>`;
   }).join('');
+}
+
+// ── 分區拖曳排序 ──────────────────────────────────────────────────────────
+let secDragSrc=null;
+
+function onSecDragStart(e,el){
+  // 若是欄位內的拖曳觸發則忽略分區拖曳
+  if(e.target.closest('.fi')){ e.stopPropagation(); return; }
+  secDragSrc=el.dataset.section;
+  el.style.opacity='.45';
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain','sec:'+secDragSrc);
+}
+
+function onSecDragOver(e,el){
+  if(!secDragSrc) return;
+  e.preventDefault(); e.stopPropagation();
+  e.dataTransfer.dropEffect='move';
+  // 移除其他分區的指示線
+  document.querySelectorAll('.sec-group').forEach(g=>{
+    g.style.boxShadow=''; g.style.borderTop='';
+  });
+  const targetSec=el.dataset.section;
+  if(targetSec && targetSec!==secDragSrc){
+    el.style.boxShadow='0 -3px 0 var(--sage)';
+  }
+}
+
+function onSecDrop(e,el){
+  e.preventDefault(); e.stopPropagation();
+  const toSec=el.dataset.section;
+  if(!secDragSrc||!toSec||secDragSrc===toSec){ onSecDragEnd(e,el); return; }
+
+  // 取得目前分區順序
+  const sections=[];
+  const seen=new Set();
+  editFields.forEach(f=>{if(!seen.has(f.section)){sections.push(f.section);seen.add(f.section);}});
+
+  const fromIdx=sections.indexOf(secDragSrc);
+  const toIdx=sections.indexOf(toSec);
+  if(fromIdx<0||toIdx<0){ onSecDragEnd(e,el); return; }
+
+  // 把 secDragSrc 的所有欄位提取出來
+  const movedFields=editFields.filter(f=>f.section===secDragSrc);
+  const rest=editFields.filter(f=>f.section!==secDragSrc);
+
+  // 在 rest 中找到 toSec 最後一個欄位的 index，插在其後
+  // 若 toIdx < fromIdx，插在 toSec 第一個欄位之前
+  const insertBefore = toIdx < fromIdx;
+  const targetIdx = insertBefore
+    ? rest.findIndex(f=>f.section===toSec)
+    : rest.reduce((acc,f,i)=>f.section===toSec?i:acc, -1)+1;
+
+  rest.splice(targetIdx, 0, ...movedFields);
+  editFields.length=0;
+  rest.forEach(f=>editFields.push(f));
+
+  onSecDragEnd(e,el);
+  document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
+  initDragDrop();
+  toast(`分區「${secDragSrc}」已移動`);
+}
+
+function onSecDragEnd(e,el){
+  document.querySelectorAll('.sec-group').forEach(g=>{
+    g.style.opacity='';g.style.boxShadow='';
+  });
+  secDragSrc=null;
 }
 
 // ── 分區快速新增欄位 ───────────────────────────────────────────────────────
@@ -1366,7 +1443,7 @@ function showQuickAddField(sectionName){
           <div class="fg">
             <label class="flabel">欄位類型</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="qa-tchips">
-              ${['text','number','date','textarea','select'].map(t=>`
+              ${['text','number','date','time','textarea','select'].map(t=>`
                 <div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selQAType(this)">${TYPE_NAMES[t]}</div>
               `).join('')}
             </div>
@@ -1538,7 +1615,7 @@ function editFieldInline(fid){
           <div class="fg">
             <label class="flabel">欄位類型</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="ef-tchips">
-              ${['text','number','date','textarea','select'].map(t=>`
+              ${['text','number','date','time','textarea','select'].map(t=>`
                 <div class="tchip ${t===f.type?'sel':''}" data-t="${t}" onclick="selEFType(this)">${TYPE_NAMES[t]}</div>
               `).join('')}
             </div>

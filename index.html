@@ -699,18 +699,16 @@ async function vCase(){
         <div class="case-hero-meta">建立於 ${new Date(c.createdAt).toLocaleString('zh-TW')} ${c.updatedAt?'· 最後儲存 '+new Date(c.updatedAt).toLocaleString('zh-TW'):''}</div>
       </div>
 
-      <!-- AI 掃描區塊（預設收起）-->
+      <!-- 全域 AI 掃描區塊（預設收起，作為備用）-->
       <div id="ai-scan-panel" style="display:none;margin-bottom:20px;border-radius:14px;border:2px solid #bfdbfe;overflow:hidden;box-shadow:0 2px 16px rgba(59,130,246,.1)">
         <div style="background:var(--ink);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)">
           <div>
-            <div style="color:var(--cream);font-size:14px;font-weight:700;letter-spacing:.3px">📷 Gemini AI 病歷辨識</div>
-            <div style="color:rgba(240,235,225,.45);font-size:12px;margin-top:3px">上傳一或多張病歷照片，AI 自動辨識並填入對應欄位</div>
+            <div style="color:var(--cream);font-size:14px;font-weight:700;letter-spacing:.3px">📷 Gemini AI 全表掃描</div>
+            <div style="color:rgba(240,235,225,.45);font-size:12px;margin-top:3px">上傳照片，AI 一次填入所有欄位</div>
           </div>
           <button onclick="hideAIScan()" style="background:rgba(240,235,225,.08);border:1px solid rgba(240,235,225,.15);color:rgba(240,235,225,.7);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">收起 ✕</button>
         </div>
         <div style="background:var(--cream);padding:20px">
-
-          <!-- API Key 輸入 -->
           <div id="ai-apikey-wrap" style="margin-bottom:16px;padding:14px 16px;background:var(--card);border-radius:12px;border:1px solid var(--border2)">
             <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Gemini API Key</div>
             <div style="display:flex;gap:8px">
@@ -719,8 +717,6 @@ async function vCase(){
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:6px">Key 僅存在本機瀏覽器，不會上傳任何伺服器</div>
           </div>
-
-          <!-- 上傳區 -->
           <div id="ai-upload-area" style="border:1.5px dashed var(--border);border-radius:12px;padding:24px 20px;text-align:center;cursor:pointer;background:var(--card);transition:all .2s"
             onclick="document.getElementById('ai-file-input').click()"
             ondragover="event.preventDefault();this.style.background='var(--sage-light)';this.style.borderColor='var(--sage)'"
@@ -731,8 +727,6 @@ async function vCase(){
             <div style="font-size:12px;color:var(--muted)">支援 JPG、PNG ・ 手機拍照 ・ 拖曳上傳 ・ 最多 8 張</div>
             <input type="file" id="ai-file-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handleAIFiles(this)">
           </div>
-
-          <!-- 多圖預覽 -->
           <div id="ai-thumbs" style="display:none;margin-top:14px">
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選擇的照片 <span id="ai-img-count"></span></div>
             <div id="ai-thumbs-grid" style="display:flex;gap:8px;flex-wrap:wrap"></div>
@@ -741,14 +735,12 @@ async function vCase(){
               <span id="ai-status-msg">準備就緒，按下「開始辨識」</span>
             </div>
             <div style="display:flex;gap:10px;margin-top:12px">
-              <button onclick="startAIScan()" id="ai-scan-btn" class="btn btn-primary" style="flex:1;justify-content:center">🤖 開始 Gemini 辨識</button>
+              <button onclick="startAIScan(null)" id="ai-scan-btn" class="btn btn-primary" style="flex:1;justify-content:center">🤖 開始 Gemini 辨識</button>
               <button onclick="resetAIScan()" class="btn btn-outline">重新選圖</button>
             </div>
           </div>
-
-          <!-- 辨識結果 -->
           <div id="ai-result" style="display:none;margin-top:16px">
-            <div style="font-size:13px;font-weight:800;color:var(--navy);margin-bottom:10px">📋 AI 辨識結果（請確認後再套用）</div>
+            <div style="font-size:13px;font-weight:800;color:var(--ink);margin-bottom:10px">📋 AI 辨識結果（請確認後再套用）</div>
             <div id="ai-result-list" style="background:var(--card);border-radius:12px;border:1px solid var(--border2);overflow:hidden;max-height:320px;overflow-y:auto"></div>
             <div style="display:flex;gap:10px;margin-top:12px">
               <button onclick="applyAIResult()" class="btn btn-success" style="flex:1;justify-content:center">✅ 套用到表單</button>
@@ -760,9 +752,17 @@ async function vCase(){
 
     ${Object.entries(secs).map(([name,sec],idx)=>`
         <div class="fsection" style="animation-delay:${idx*0.05}s">
-          <div class="fsection-hd" style="background:${sec.color}14;border-bottom:1px solid ${sec.color}22;color:${sec.color};">
-            <span class="fsection-hd-dot" style="background:${sec.color}"></span>
-            ${name}
+          <div class="fsection-hd" style="background:${sec.color}14;border-bottom:1px solid ${sec.color}22;color:${sec.color};display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="fsection-hd-dot" style="background:${sec.color}"></span>
+              <span>${name}</span>
+              <span style="font-size:11px;opacity:.55;font-weight:500">${sec.fields.length} 個欄位</span>
+            </div>
+            <button onclick="showSectionAIScan('${escH(name)}')"
+              style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${sec.color}40;background:${sec.color}10;color:${sec.color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+              onmouseenter="this.style.background='${sec.color}22'" onmouseleave="this.style.background='${sec.color}10'">
+              📷 AI 掃此區
+            </button>
           </div>
           <div class="fsection-bd"><div class="sgrid">
             ${sec.fields.map(f=>`
@@ -798,7 +798,236 @@ function fInput(f,v){
   return `<input class="finput" type="${f.type||'text'}" value="${escH(v)}" ${a}>`;
 }
 
-// ── Gemini AI 病歷辨識（多張照片）────────────────────────────────────────
+// ── 分區 AI 掃描 Modal ────────────────────────────────────────────────────
+let secScanImages = [];   // 分區掃描的圖片
+let secScanResult = {};   // 分區掃描結果
+let secScanFields = [];   // 目前掃描的分區欄位
+
+async function showSectionAIScan(sectionName){
+  const apiKey = getGeminiKey();
+  const p = await dbGet('projects', PID);
+  const allFields = p.fields || DEFAULT_FIELDS;
+  secScanFields = allFields.filter(f => f.section === sectionName);
+  secScanImages = [];
+  secScanResult = {};
+
+  const fieldTags = secScanFields.map(f =>
+    `<span style="display:inline-block;padding:3px 10px;background:var(--border2);border-radius:20px;font-size:12px;color:var(--ink2);margin:3px">${escH(f.label)}</span>`
+  ).join('');
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="sec-ai-modal" onclick="if(event.target.id==='sec-ai-modal')closeSecAI()">
+      <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+
+        <!-- Header -->
+        <div style="background:var(--ink);padding:20px 24px 16px;border-radius:19px 19px 0 0;position:relative">
+          <div style="font-size:15px;font-weight:800;color:var(--cream);margin-bottom:4px">📷 AI 掃描：${escH(sectionName)}</div>
+          <div style="font-size:12px;color:rgba(240,235,225,.45)">上傳照片，AI 只填入此區的 ${secScanFields.length} 個欄位</div>
+          <button onclick="closeSecAI()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(240,235,225,.7);border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
+        </div>
+
+        <div style="padding:20px 24px">
+
+          <!-- 此區欄位預覽 -->
+          <div style="background:var(--cream);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.7px;text-transform:uppercase;margin-bottom:8px">將填入的欄位</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0">${fieldTags}</div>
+          </div>
+
+          <!-- API Key -->
+          <div style="margin-bottom:14px;padding:12px 14px;background:var(--card);border-radius:10px;border:1px solid var(--border2)">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.7px">Gemini API Key</div>
+            <div style="display:flex;gap:8px">
+              <input class="finput" type="password" id="sec-gemini-key" placeholder="AIzaSy…" value="${escH(apiKey)}" style="flex:1">
+              <button class="btn btn-outline btn-sm" onclick="saveSecGeminiKey()">記住</button>
+            </div>
+          </div>
+
+          <!-- 上傳區 -->
+          <div id="sec-upload-area" style="border:1.5px dashed var(--border);border-radius:12px;padding:22px;text-align:center;cursor:pointer;background:var(--card);transition:all .2s;margin-bottom:14px"
+            onclick="document.getElementById('sec-file-input').click()"
+            ondragover="event.preventDefault();this.style.background='var(--sage-light)';this.style.borderColor='var(--sage)'"
+            ondragleave="this.style.background='var(--card)';this.style.borderColor='var(--border)'"
+            ondrop="handleSecDrop(event)">
+            <div style="font-size:28px;margin-bottom:6px;opacity:.6">📸</div>
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此上傳照片（可多張）</div>
+            <div style="font-size:12px;color:var(--muted)">JPG / PNG ・ 最多 8 張</div>
+            <input type="file" id="sec-file-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handleSecFiles(this)">
+          </div>
+
+          <!-- 縮圖列 -->
+          <div id="sec-thumbs" style="display:none;margin-bottom:14px">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選 <span id="sec-img-count"></span> 張照片</div>
+            <div id="sec-thumbs-grid" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+          </div>
+
+          <!-- 狀態列 -->
+          <div id="sec-status" style="display:none;padding:11px 14px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span id="sec-status-icon">🟡</span>
+            <span id="sec-status-msg">準備就緒</span>
+          </div>
+
+          <!-- 辨識結果 -->
+          <div id="sec-result" style="display:none;margin-bottom:14px">
+            <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px">📋 辨識結果（請確認後套用）</div>
+            <div id="sec-result-list" style="background:var(--card);border-radius:10px;border:1px solid var(--border2);overflow:hidden;max-height:260px;overflow-y:auto"></div>
+          </div>
+
+          <!-- 動作按鈕 -->
+          <div id="sec-actions" style="display:none;display:flex;gap:10px">
+            <button id="sec-scan-btn" onclick="runSecAIScan()" class="btn btn-primary" style="flex:1;justify-content:center;display:none">🤖 開始辨識</button>
+            <button id="sec-apply-btn" onclick="applySecAIResult()" class="btn btn-success" style="flex:1;justify-content:center;display:none">✅ 套用到表單</button>
+            <button onclick="resetSecScan()" class="btn btn-outline" id="sec-reset-btn" style="display:none">重選圖片</button>
+          </div>
+
+        </div>
+      </div>
+    </div>`);
+}
+
+function closeSecAI(){ document.getElementById('sec-ai-modal')?.remove(); secScanImages=[]; secScanResult={}; }
+function saveSecGeminiKey(){
+  const k = document.getElementById('sec-gemini-key')?.value.trim();
+  if(k){ localStorage.setItem('geminiApiKey',k); toast('✅ API Key 已記住'); }
+}
+
+function handleSecDrop(e){
+  e.preventDefault();
+  document.getElementById('sec-upload-area').style.background='var(--card)';
+  const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));
+  if(files.length) processSecFiles(files);
+}
+function handleSecFiles(input){
+  const files=[...input.files].filter(f=>f.type.startsWith('image/'));
+  if(files.length) processSecFiles(files);
+}
+function processSecFiles(files){
+  secScanImages=[];
+  const toLoad=files.slice(0,8);
+  let done=0;
+  toLoad.forEach((file,i)=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      secScanImages[i]={base64:e.target.result.split(',')[1],mimeType:file.type||'image/jpeg',dataUrl:e.target.result};
+      done++;
+      if(done===toLoad.length) renderSecThumbs();
+    };
+    r.readAsDataURL(file);
+  });
+}
+function renderSecThumbs(){
+  const grid=document.getElementById('sec-thumbs-grid');
+  grid.innerHTML=secScanImages.filter(Boolean).map((img,i)=>`
+    <div style="position:relative;width:72px;height:72px;flex-shrink:0">
+      <img src="${img.dataUrl}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">
+      <button onclick="removeSecImg(${i})" style="position:absolute;top:-5px;right:-5px;width:18px;height:18px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:10px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>`).join('');
+  document.getElementById('sec-img-count').textContent=secScanImages.filter(Boolean).length;
+  document.getElementById('sec-thumbs').style.display='';
+  document.getElementById('sec-upload-area').style.display='none';
+  document.getElementById('sec-status').style.display='flex';
+  document.getElementById('sec-status-icon').textContent='🟡';
+  document.getElementById('sec-status-msg').textContent='準備就緒，按下「開始辨識」';
+  // Show action buttons
+  document.getElementById('sec-scan-btn').style.display='flex';
+  document.getElementById('sec-reset-btn').style.display='flex';
+  document.getElementById('sec-apply-btn').style.display='none';
+}
+function removeSecImg(i){ secScanImages.splice(i,1); if(!secScanImages.length) resetSecScan(); else renderSecThumbs(); }
+function resetSecScan(){
+  secScanImages=[]; secScanResult={};
+  document.getElementById('sec-upload-area').style.display='';
+  document.getElementById('sec-thumbs').style.display='none';
+  document.getElementById('sec-result').style.display='none';
+  document.getElementById('sec-status').style.display='none';
+  document.getElementById('sec-scan-btn').style.display='none';
+  document.getElementById('sec-apply-btn').style.display='none';
+  document.getElementById('sec-reset-btn').style.display='none';
+  document.getElementById('sec-file-input').value='';
+}
+
+function setSecStatus(state,msg){
+  const icons={ready:'🟡',loading:'⏳',done:'✅',error:'❌'};
+  const el=document.getElementById('sec-status');
+  if(!el) return;
+  el.style.display='flex';
+  document.getElementById('sec-status-icon').textContent=icons[state]||'⏳';
+  document.getElementById('sec-status-msg').textContent=msg;
+  el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
+}
+
+async function runSecAIScan(){
+  const imgs=secScanImages.filter(Boolean);
+  if(!imgs.length){ toast('請先選擇圖片'); return; }
+  const apiKey=document.getElementById('sec-gemini-key')?.value.trim()||getGeminiKey();
+  if(!apiKey){ toast('請先輸入 Gemini API Key'); return; }
+
+  const btn=document.getElementById('sec-scan-btn');
+  btn.disabled=true; btn.textContent=`⏳ 辨識中（${imgs.length} 張）…`;
+  setSecStatus('loading',`Gemini 正在分析 ${imgs.length} 張照片，請稍候…`);
+
+  const fieldList=secScanFields.map(f=>`- ${f.label}（類型：${f.type}${f.options?'，選項：'+f.options:''}）`).join('\n');
+
+  try{
+    const parts=[];
+    imgs.forEach((img,i)=>{
+      parts.push({text:`[第 ${i+1} 張圖片]`});
+      parts.push({inline_data:{mime_type:img.mimeType,data:img.base64}});
+    });
+    parts.push({text:`你是醫療資料萃取助理。請從以上 ${imgs.length} 張圖片中，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。select 類型只回覆選項中完全相符的值。不要 markdown。`});
+
+    const resp=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
+    );
+    if(!resp.ok){ const err=await resp.json(); throw new Error(err.error?.message||`HTTP ${resp.status}`); }
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+
+    secScanResult={};
+    const resultItems=[];
+    for(const f of secScanFields){
+      const val=parsed[f.label];
+      if(val!==undefined&&val!==null&&val!==''){
+        secScanResult[f.id]=String(val);
+        resultItems.push({field:f,value:String(val)});
+      }
+    }
+
+    if(!resultItems.length){
+      setSecStatus('error','找不到對應此區欄位的資料，請確認照片內容或清晰度');
+      btn.disabled=false; btn.textContent='🤖 重新辨識';
+      return;
+    }
+
+    document.getElementById('sec-result-list').innerHTML=resultItems.map(({field,value})=>`
+      <div style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border2)">
+        <span style="font-size:12px;font-weight:700;color:var(--muted);min-width:100px;flex-shrink:0;padding-top:1px">${escH(field.label)}</span>
+        <span style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all">${escH(value)}</span>
+      </div>`).join('');
+    document.getElementById('sec-result').style.display='';
+    document.getElementById('sec-apply-btn').style.display='flex';
+    setSecStatus('done',`找到 ${resultItems.length} 個欄位的資料，確認後套用`);
+
+  } catch(err){
+    setSecStatus('error','辨識失敗：'+err.message);
+  }
+  btn.disabled=false; btn.textContent='🤖 重新辨識';
+}
+
+function applySecAIResult(){
+  if(!Object.keys(secScanResult).length){ toast('沒有可套用的資料'); return; }
+  for(const [fid,val] of Object.entries(secScanResult)){
+    formData[fid]=val;
+    const el=document.querySelector(`[data-fid="${fid}"]`);
+    if(el) el.value=val;
+  }
+  dirty=true;
+  document.getElementById('savebar').classList.add('on');
+  closeSecAI();
+  toast(`✅ 已套用 ${Object.keys(secScanResult).length} 個欄位，請確認後儲存`);
+}
 let aiImages = [];      // [{base64, mimeType, dataUrl}]
 let aiParsedResult = {};
 

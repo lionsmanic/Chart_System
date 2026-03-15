@@ -1017,7 +1017,7 @@ async function delCase(cid){
 
 // ── Settings (field builder) ───────────────────────────────────────────────
 async function vSettings(pid){
-  pid=pid||PID;PID=pid;VIEW='settings';
+  pid=pid||PID; PID=pid; VIEW='settings';
   const p=await dbGet('projects',pid);
   editFields=JSON.parse(JSON.stringify(p.fields||DEFAULT_FIELDS));
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
@@ -1026,22 +1026,37 @@ async function vSettings(pid){
     <button class="btn btn-success" onclick="saveSettings('${pid}')">💾 儲存設定</button>`;
   document.getElementById('app').innerHTML=`
     <div class="bc"><a onclick="goHome()">首頁</a><span class="bc-sep">›</span><a onclick="goProject('${pid}')">${escH(p.name)}</a><span class="bc-sep">›</span><span>欄位設定</span></div>
-    <div style="max-width:720px">
+    <div style="max-width:760px">
       <div class="page-title">問卷欄位設定</div>
-      <div class="page-sub">新增或刪除欄位，所有病例表單自動更新</div>
-      <div class="card" style="margin-bottom:20px">
+      <div class="page-sub">拖曳 ⠿ 調整欄位順序・點欄位名稱可直接編輯・可跨分區移動欄位</div>
+
+      <!-- 現有欄位（按分區分組）-->
+      <div class="card" style="margin-bottom:22px">
         <div class="card-header">
-          <span style="font-weight:700;font-size:14px">目前欄位</span>
-          <span style="font-size:12px;color:var(--muted)" id="fc-badge">${editFields.length} 個</span>
+          <span style="font-weight:700;font-size:15px">目前欄位</span>
+          <span style="font-size:13px;color:var(--muted)" id="fc-badge">${editFields.length} 個欄位</span>
         </div>
-        <div class="card-body" id="flist">${editFields.map(fiHTML).join('')}</div>
+        <div class="card-body" style="padding:16px" id="flist-wrap">
+          ${renderFieldsBySection()}
+        </div>
       </div>
+
+      <!-- 新增欄位 -->
       <div class="card">
-        <div class="card-header"><span style="font-weight:700;font-size:14px">新增欄位</span></div>
+        <div class="card-header"><span style="font-weight:700;font-size:15px">新增欄位</span></div>
         <div class="card-body">
-          <div class="frow" style="margin-bottom:12px">
-            <div class="fg"><label class="flabel">欄位名稱</label><input class="finput" id="nf-label" placeholder="例：過敏史、追蹤日期..."></div>
-            <div class="fg"><label class="flabel">所屬分區</label><input class="finput" id="nf-section" placeholder="例：基本資料、問卷..."></div>
+          <div class="frow" style="margin-bottom:16px">
+            <div class="fg" style="margin-bottom:0">
+              <label class="flabel">欄位名稱 <span style="color:var(--red)">＊</span></label>
+              <input class="finput" id="nf-label" placeholder="例：過敏史、手術日期...">
+            </div>
+            <div class="fg" style="margin-bottom:0">
+              <label class="flabel">所屬分區</label>
+              <div style="position:relative">
+                <input class="finput" id="nf-section" placeholder="輸入或選擇分區名稱" oninput="showSectionSuggestions()" onfocus="showSectionSuggestions()" onblur="setTimeout(()=>hideSuggestions(),150)">
+                <div id="section-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card);border:1.5px solid var(--sage);border-top:none;border-radius:0 0 10px 10px;z-index:50;box-shadow:0 8px 24px rgba(28,30,34,.12)"></div>
+              </div>
+            </div>
           </div>
           <div class="fg">
             <label class="flabel">欄位類型</label>
@@ -1050,50 +1065,243 @@ async function vSettings(pid){
             </div>
           </div>
           <div class="fg" id="opt-wrap" style="display:none">
-            <label class="flabel">選項（逗號分隔）</label>
+            <label class="flabel">下拉選項（逗號分隔）</label>
             <input class="finput" id="nf-options" placeholder="例：良好,普通,不佳">
           </div>
           <div class="fg">
             <label class="flabel">分區顏色</label>
-            <div style="display:flex;gap:8px;margin-top:6px" id="cpicker">
-              ${COLORS.map((c,i)=>`<div class="cdot ${i===0?'act':''}" style="background:${c}" data-c="${c}" onclick="selColor(this)"></div>`).join('')}
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap" id="cpicker">
+              ${COLORS.map((c,i)=>`<div class="cdot ${i===0?'act':''}" style="background:${c}" data-c="${c}" onclick="selColor(this)" title="${c}"></div>`).join('')}
             </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:7px">同一分區的所有欄位共用同一顏色，若分區已存在則自動沿用</div>
           </div>
-          <button class="btn btn-primary" onclick="addField()">＋ 新增欄位</button>
+          <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="addField()">＋ 新增欄位</button>
         </div>
       </div>
     </div>`;
+
+  initDragDrop();
+}
+
+// ── 按分區渲染欄位列表 ─────────────────────────────────────────────────────
+function renderFieldsBySection(){
+  if(!editFields.length) return `<div style="text-align:center;padding:32px;color:var(--muted);font-size:14px">尚無欄位，請在下方新增</div>`;
+  // 取得所有分區（保持順序）
+  const sections=[];
+  const seen=new Set();
+  editFields.forEach(f=>{if(!seen.has(f.section)){sections.push(f.section);seen.add(f.section);}});
+
+  return sections.map(sec=>{
+    const color = editFields.find(f=>f.section===sec)?.sectionColor||'#3E7265';
+    const fields = editFields.filter(f=>f.section===sec);
+    return `
+      <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px">
+        <!-- 分區標題列 -->
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:${color}12;border-radius:9px 9px 0 0;border:1px solid ${color}28;border-bottom:none;margin-bottom:0">
+          <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
+          <span class="sec-name-label" data-sec="${escH(sec)}" style="font-size:12px;font-weight:700;color:${color};letter-spacing:1px;text-transform:uppercase;flex:1;cursor:text" onclick="startRenameSection(this)" title="點擊重新命名分區">${escH(sec)}</span>
+          <span style="font-size:11px;color:var(--muted)">${fields.length} 個欄位</span>
+        </div>
+        <!-- 欄位列表 -->
+        <div class="sec-fields" data-section="${escH(sec)}" style="border:1px solid ${color}28;border-radius:0 0 9px 9px;overflow:hidden">
+          ${fields.map((f,i)=>fiHTML(f,i)).join('')}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function fiHTML(f){
-  return `<div class="fi" id="fi-${f.id}">
-    <div style="width:10px;height:10px;border-radius:50%;background:${f.sectionColor||'#1d6fa4'};flex-shrink:0"></div>
-    <div class="fi-info"><div class="fi-label">${escH(f.label)}</div><div class="fi-type">${escH(f.section)} · ${TYPE_NAMES[f.type]||f.type}</div></div>
-    <button class="btn btn-danger btn-sm" onclick="removeField('${f.id}')">刪除</button>
+  return `<div class="fi" id="fi-${f.id}" data-fid="${f.id}" draggable="true"
+    style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border-bottom:1px solid var(--border2);cursor:default;transition:background .12s;user-select:none"
+    ondragstart="onDragStart(event,this)" ondragover="onDragOver(event,this)" ondrop="onDrop(event,this)" ondragend="onDragEnd(event)">
+    <span class="drag-handle" title="拖曳排序" style="color:var(--border);font-size:18px;cursor:grab;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:color .15s" onmouseenter="this.style.color='var(--muted)'" onmouseleave="this.style.color='var(--border)'">⠿</span>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="fi-label" style="font-size:14px;font-weight:600;color:var(--ink)">${escH(f.label)}</span>
+        <span style="font-size:11px;padding:2px 8px;background:var(--cream);border-radius:12px;color:var(--muted);font-weight:600">${TYPE_NAMES[f.type]||f.type}</span>
+        ${f.required?'<span style="font-size:11px;padding:2px 8px;background:#FEF3C7;border-radius:12px;color:#B45309;font-weight:600">必填</span>':''}
+      </div>
+      ${f.options?`<div style="font-size:12px;color:var(--muted);margin-top:3px">選項：${escH(f.options)}</div>`:''}
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button class="btn btn-outline btn-sm" onclick="editFieldInline('${f.id}')" style="font-size:12px;padding:5px 12px">編輯</button>
+      <button class="btn btn-danger btn-sm" onclick="removeField('${f.id}')" style="font-size:12px;padding:5px 10px">刪除</button>
+    </div>
   </div>`;
 }
+
+// ── 分區重新命名 ───────────────────────────────────────────────────────────
+function startRenameSection(el){
+  const oldName = el.dataset.sec;
+  const color = editFields.find(f=>f.section===oldName)?.sectionColor||'#3E7265';
+  const input = document.createElement('input');
+  input.value = oldName;
+  input.style.cssText=`font-size:12px;font-weight:700;color:${color};background:transparent;border:none;border-bottom:2px solid ${color};outline:none;width:120px;letter-spacing:1px;text-transform:uppercase;font-family:inherit;padding:0;`;
+  el.replaceWith(input);
+  input.focus(); input.select();
+  const commit=()=>{
+    const newName=input.value.trim()||oldName;
+    // 更新 editFields 中所有同分區欄位
+    editFields.forEach(f=>{if(f.section===oldName) f.section=newName;});
+    // 重繪
+    document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
+    initDragDrop();
+    if(newName!==oldName) toast(`分區已重新命名為「${newName}」`);
+  };
+  input.addEventListener('blur',commit);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')input.blur();if(e.key==='Escape'){input.value=oldName;input.blur();}});
+}
+
+// ── 分區輸入自動完成 ────────────────────────────────────────────────────────
+function getSections(){
+  const s=new Set(); editFields.forEach(f=>s.add(f.section)); return [...s];
+}
+function showSectionSuggestions(){
+  const val=(document.getElementById('nf-section')?.value||'').toLowerCase();
+  const all=getSections();
+  const matches=val?all.filter(s=>s.toLowerCase().includes(val)):all;
+  const box=document.getElementById('section-suggestions');
+  if(!matches.length){box.style.display='none';return;}
+  box.innerHTML=matches.map(s=>`
+    <div onclick="pickSection('${escH(s)}')" style="padding:10px 14px;font-size:14px;cursor:pointer;color:var(--ink);transition:background .12s"
+      onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
+      ${escH(s)}
+    </div>`).join('');
+  box.style.display='';
+}
+function hideSuggestions(){document.getElementById('section-suggestions').style.display='none';}
+function pickSection(name){
+  document.getElementById('nf-section').value=name;
+  hideSuggestions();
+  // 自動沿用該分區顏色
+  const color=editFields.find(f=>f.section===name)?.sectionColor;
+  if(color){
+    document.querySelectorAll('.cdot').forEach(d=>{d.classList.toggle('act',d.dataset.c===color);});
+  }
+}
+
+// ── 行內編輯欄位 ─────────────────────────────────────────────────────────
+function editFieldInline(fid){
+  const f=editFields.find(x=>x.id===fid);
+  if(!f) return;
+  const optLine=f.type==='select'?`
+    <div class="fg" style="margin-bottom:12px">
+      <label class="flabel">選項（逗號分隔）</label>
+      <input class="finput" id="ef-options" value="${escH(f.options||'')}">
+    </div>`:'';
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="ef-modal" onclick="if(event.target.id==='ef-modal')closeEF()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-hd"><span class="modal-title">編輯欄位</span><button class="btn-icon" onclick="closeEF()">✕</button></div>
+        <div class="modal-bd">
+          <div class="fg"><label class="flabel">欄位名稱</label><input class="finput" id="ef-label" value="${escH(f.label)}"></div>
+          <div class="fg"><label class="flabel">所屬分區</label>
+            <input class="finput" id="ef-section" value="${escH(f.section)}" list="ef-sec-list">
+            <datalist id="ef-sec-list">${getSections().map(s=>`<option value="${escH(s)}">`).join('')}</datalist>
+          </div>
+          ${optLine}
+          <div class="fg" style="margin-bottom:0">
+            <label class="flabel">分區顏色</label>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+              ${COLORS.map(c=>`<div class="cdot ef-cdot ${c===f.sectionColor?'act':''}" style="background:${c}" data-c="${c}" onclick="selEFColor(this)"></div>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeEF()">取消</button>
+          <button class="btn btn-primary" onclick="saveFieldEdit('${fid}')">儲存</button>
+        </div>
+      </div>
+    </div>`);
+}
+function closeEF(){document.getElementById('ef-modal')?.remove();}
+function selEFColor(el){document.querySelectorAll('.ef-cdot').forEach(d=>d.classList.remove('act'));el.classList.add('act');}
+function saveFieldEdit(fid){
+  const f=editFields.find(x=>x.id===fid);
+  if(!f) return;
+  const newLabel=document.getElementById('ef-label').value.trim();
+  const newSec=document.getElementById('ef-section').value.trim()||f.section;
+  const newColor=document.querySelector('.ef-cdot.act')?.dataset.c||f.sectionColor;
+  const newOpts=document.getElementById('ef-options')?.value.trim()||f.options||'';
+  if(!newLabel){alert('請輸入欄位名稱');return;}
+  f.label=newLabel; f.section=newSec; f.sectionColor=newColor; f.options=newOpts;
+  // 同步同分區其他欄位的顏色
+  editFields.forEach(x=>{if(x.section===newSec) x.sectionColor=newColor;});
+  closeEF();
+  document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
+  initDragDrop();
+  document.getElementById('fc-badge').textContent=editFields.length+' 個欄位';
+  toast('欄位已更新');
+}
+
+// ── 拖曳排序 ──────────────────────────────────────────────────────────────
+let dragSrcId=null, dragOverId=null;
+function onDragStart(e,el){
+  dragSrcId=el.dataset.fid;
+  el.style.opacity='.45';
+  e.dataTransfer.effectAllowed='move';
+}
+function onDragOver(e,el){
+  e.preventDefault();e.dataTransfer.dropEffect='move';
+  document.querySelectorAll('.fi').forEach(f=>f.style.boxShadow='');
+  dragOverId=el.dataset.fid;
+  if(dragOverId!==dragSrcId) el.style.boxShadow='0 -3px 0 var(--sage)';
+}
+function onDrop(e,el){
+  e.preventDefault();
+  const toId=el.dataset.fid;
+  if(!dragSrcId||dragSrcId===toId) return;
+  const fromIdx=editFields.findIndex(f=>f.id===dragSrcId);
+  const toIdx=editFields.findIndex(f=>f.id===toId);
+  if(fromIdx<0||toIdx<0) return;
+  const [moved]=editFields.splice(fromIdx,1);
+  // 讓拖曳的欄位繼承目標分區的分區名稱和顏色
+  const targetField=editFields[toIdx];
+  moved.section=targetField.section;
+  moved.sectionColor=targetField.sectionColor;
+  editFields.splice(toIdx,0,moved);
+  document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
+  initDragDrop();
+}
+function onDragEnd(e){
+  document.querySelectorAll('.fi').forEach(f=>{f.style.opacity='';f.style.boxShadow='';});
+  dragSrcId=null; dragOverId=null;
+}
+function initDragDrop(){
+  // re-bind already handled by inline handlers; nothing extra needed
+}
+
 function selType(el){document.querySelectorAll('.tchip').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');document.getElementById('opt-wrap').style.display=el.dataset.t==='select'?'':'none';}
-function selColor(el){document.querySelectorAll('.cdot').forEach(c=>c.classList.remove('act'));el.classList.add('act');}
+function selColor(el){document.querySelectorAll('#cpicker .cdot').forEach(c=>c.classList.remove('act'));el.classList.add('act');}
+
 function addField(){
   const label=document.getElementById('nf-label').value.trim();
   if(!label){alert('請輸入欄位名稱');return;}
   const section=document.getElementById('nf-section').value.trim()||'其他';
   const type=document.querySelector('.tchip.sel')?.dataset.t||'text';
   const options=document.getElementById('nf-options')?.value.trim()||'';
-  const color=document.querySelector('.cdot.act')?.dataset.c||'#1d6fa4';
+  // 若分區已存在則自動沿用顏色，否則用選擇的顏色
+  const existColor=editFields.find(f=>f.section===section)?.sectionColor;
+  const color=existColor||document.querySelector('#cpicker .cdot.act')?.dataset.c||COLORS[0];
   const f={id:uid(),label,section,sectionColor:color,type,options};
   editFields.push(f);
-  document.getElementById('flist').insertAdjacentHTML('beforeend',fiHTML(f));
-  document.getElementById('fc-badge').textContent=editFields.length+' 個';
+  document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
+  initDragDrop();
+  document.getElementById('fc-badge').textContent=editFields.length+' 個欄位';
   document.getElementById('nf-label').value='';
-  toast('欄位已加入，記得按「儲存設定」');
+  document.getElementById('nf-options').value='';
+  toast(`欄位「${label}」已加入「${section}」`);
 }
+
 function removeField(fid){
-  if(!confirm('刪除此欄位？'))return;
-  editFields=editFields.filter(f=>f.id!==fid);
-  document.getElementById('fi-'+fid)?.remove();
-  document.getElementById('fc-badge').textContent=editFields.length+' 個';
+  const f=editFields.find(x=>x.id===fid);
+  if(!confirm(`確定刪除欄位「${f?.label||''}」？`))return;
+  editFields=editFields.filter(x=>x.id!==fid);
+  document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
+  initDragDrop();
+  document.getElementById('fc-badge').textContent=editFields.length+' 個欄位';
 }
+
 async function saveSettings(pid){
   const p=await dbGet('projects',pid);
   p.fields=editFields;

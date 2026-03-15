@@ -1369,10 +1369,18 @@ function togglePhotoList(hd){
 function expandAllSections(){
   document.querySelectorAll('.fsection-body').forEach(b=>b.style.display='');
   document.querySelectorAll('.sec-toggle-icon').forEach(i=>i.style.transform='rotate(0deg)');
+  const pl=document.getElementById('photo-list-body');
+  const pi=document.getElementById('photo-list-icon');
+  if(pl) pl.style.display='';
+  if(pi) pi.textContent='▲';
 }
 function collapseAllSections(){
   document.querySelectorAll('.fsection-body').forEach(b=>b.style.display='none');
   document.querySelectorAll('.sec-toggle-icon').forEach(i=>i.style.transform='rotate(-90deg)');
+  const pl=document.getElementById('photo-list-body');
+  const pi=document.getElementById('photo-list-icon');
+  if(pl) pl.style.display='none';
+  if(pi) pi.textContent='▼';
 }
 
 async function saveCase(){

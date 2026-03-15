@@ -592,14 +592,18 @@ async function vProject(){
   const p=await dbGet('projects',PID);
   if(!p){goHome();return;}
   const cases=await dbIdx('cases','pid',PID);
-  const fields=p.fields||DEFAULT_FIELDS;
+  // 欄位順序：按分區分組，與欄位設定頁顯示順序完全一致
+  const fields=getOrderedFields(p.fields||DEFAULT_FIELDS);
   document.getElementById('hbreadcrumb').textContent='/ '+p.name;
   document.getElementById('hactions').innerHTML=`
     <button class="btn btn-ghost" onclick="showSyncModal('${p.id}')">🔄 匯出／匯入</button>
     <button class="btn btn-ghost" onclick="exportCSV('${p.id}')">📤 匯出 CSV</button>
+    <label class="btn btn-ghost" style="cursor:pointer" title="選擇修改後的 CSV 檔案匯回更新">
+      📥 匯入 CSV
+      <input type="file" accept=".csv" style="display:none" onchange="importCSV(this,'${p.id}')">
+    </label>
     <button class="btn btn-ghost" onclick="vSettings('${p.id}')">⚙️ 欄位設定</button>
     <button class="btn btn-primary" onclick="newCase('${p.id}')">＋ 新增病例</button>`;
-  // 病例列表欄位：直接取欄位設定的前兩個欄位
   const listCols = fields.slice(0, 2);
   document.getElementById('app').innerHTML=`
     <div class="bc"><a onclick="goHome()">首頁</a><span class="bc-sep">›</span><span>${escH(p.name)}</span></div>
@@ -619,6 +623,16 @@ async function vProject(){
     </div>
     <div id="tc-list">${buildList(cases,fields,listCols,p)}</div>
     <div id="tc-table" style="display:none">${buildTable(cases,fields,p)}</div>`;
+}
+
+// 按分區分組排序欄位，確保與欄位設定頁視覺順序一致
+function getOrderedFields(fields){
+  const sections=[];
+  const seen=new Set();
+  fields.forEach(f=>{if(!seen.has(f.section)){sections.push(f.section);seen.add(f.section);}});
+  const result=[];
+  sections.forEach(sec=>{ fields.filter(f=>f.section===sec).forEach(f=>result.push(f)); });
+  return result;
 }
 
 function buildList(cases,fields,cols,p){
@@ -644,16 +658,9 @@ function buildList(cases,fields,cols,p){
 function buildTable(cases,fields,p){
   if(!cases.length) return `<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">尚無資料</div></div>`;
   return `
-    <div style="font-size:13px;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px">
-      <span>💡 點任一儲存格可直接修改，修改後自動儲存</span>
-      <span style="margin-left:auto;display:flex;gap:8px">
-        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--card);font-size:12px;font-weight:700;color:var(--ink2);cursor:pointer;transition:all .15s"
-          onmouseenter="this.style.borderColor='var(--sage)';this.style.color='var(--sage)'"
-          onmouseleave="this.style.borderColor='var(--border)';this.style.color='var(--ink2)'">
-          📥 匯入 CSV 更新
-          <input type="file" accept=".csv" style="display:none" onchange="importCSV(this,'${p.id}')">
-        </label>
-      </span>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>💡 點任一儲存格可直接修改，自動儲存</span>
+      <span style="margin-left:auto;font-size:12px;background:var(--sage-light);color:var(--sage);padding:4px 12px;border-radius:20px;font-weight:600">修改後按右上角「📥 匯入 CSV」匯回</span>
     </div>
     <div class="twrap" style="overflow-x:auto">
       <table id="summary-table" style="min-width:100%">
@@ -1964,7 +1971,8 @@ async function importCSV(input, pid){
       toast(`✅ 已更新 ${updated} 筆病例${skipped?`（${skipped} 筆病例號未找到，已略過）`:''}`);
       // 重新渲染總覽表
       const newCases=await dbIdx('cases','pid',pid);
-      document.getElementById('tc-table').innerHTML=buildTable(newCases,fields,p);
+      const orderedFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+      document.getElementById('tc-table').innerHTML=buildTable(newCases,orderedFields,p);
     } else {
       toast(`ℹ️ 無資料變更${skipped?`（${skipped} 筆病例號未找到）`:''}`);
       input.value='';
@@ -1979,7 +1987,7 @@ async function importCSV(input, pid){
 async function exportCSV(pid){
   const p=await dbGet('projects',pid);
   const cs=await dbIdx('cases','pid',pid);
-  const fields=p.fields||DEFAULT_FIELDS;
+  const fields=getOrderedFields(p.fields||DEFAULT_FIELDS);
   const hdrs=['病例號',...fields.map(f=>f.label),'建立日期'];
   const rows=cs.map(c=>[c.caseNum||'',...fields.map(f=>(c.data[f.id]||'').replace(/,/g,'，')),new Date(c.createdAt).toLocaleDateString('zh-TW')]);
   dlCSV(p.name+'_病例資料',hdrs,rows);

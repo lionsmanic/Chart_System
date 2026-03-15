@@ -750,14 +750,20 @@ async function vCase(){
         const casePhotoNote = formData['__photoNote']||'';
         return `
         <div style="border-radius:14px;overflow:hidden;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,30,34,.08);border:1px solid var(--border2)">
-          <div style="background:var(--ink);padding:13px 18px;display:flex;align-items:center;gap:10px">
+
+          <!-- 可收合的標題列 -->
+          <div onclick="togglePhotoList(this)"
+            style="background:var(--ink);padding:13px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
             <span style="font-size:18px">📷</span>
-            <div>
+            <div style="flex:1">
               <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">拍照清單 — 請先備齊以下頁面的截圖</div>
               <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:2px">依序拍完後，再至各分區點「AI 掃此區」上傳</div>
             </div>
+            <span id="photo-list-icon" style="font-size:13px;color:rgba(240,235,225,.45);transition:transform .2s;display:inline-block">▲</span>
           </div>
-          <div style="background:var(--card);padding:0">
+
+          <!-- 收合的清單內容（預設展開） -->
+          <div id="photo-list-body" style="background:var(--card)">
             ${unique.map(({sec,note,color},i)=>`
               <div style="display:flex;gap:12px;align-items:flex-start;padding:13px 18px;border-bottom:1px solid var(--border2)">
                 <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;margin-top:5px"></div>
@@ -766,18 +772,20 @@ async function vCase(){
                   <div style="font-size:13px;color:var(--ink2);line-height:1.7;white-space:pre-wrap;word-break:break-word">${escH(note)}</div>
                 </div>
               </div>`).join('')}
-            <!-- 自由備註區 -->
-            <div style="padding:13px 18px">
-              <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px">📝 補充備註</div>
-              <textarea id="photo-note-input"
-                placeholder="可在此補充拍照注意事項、特殊說明或待辦事項..."
-                oninput="formData['__photoNote']=this.value;dirty=true;document.getElementById('savebar').classList.add('on');autoResizeTA(this)"
-                style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 13px;font-size:14px;line-height:1.7;color:var(--ink);background:var(--cream);resize:none;overflow:hidden;min-height:72px;outline:none;font-family:inherit;transition:border .18s,background .18s;white-space:pre-wrap;word-break:break-word"
-                onfocus="this.style.borderColor='var(--sage)';this.style.background='#fff'"
-                onblur="this.style.borderColor='var(--border)';this.style.background='var(--cream)'"
-                >${escH(casePhotoNote)}</textarea>
-            </div>
           </div>
+
+          <!-- 補充備註：永遠顯示，不受收合影響 -->
+          <div style="padding:13px 18px;background:var(--card);border-top:1px solid var(--border2)">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px">📝 補充備註</div>
+            <textarea id="photo-note-input"
+              placeholder="可在此補充拍照注意事項、特殊說明或待辦事項..."
+              oninput="formData['__photoNote']=this.value;dirty=true;document.getElementById('savebar').classList.add('on');autoResizeTA(this)"
+              style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 13px;font-size:14px;line-height:1.7;color:var(--ink);background:var(--cream);resize:none;overflow:hidden;min-height:72px;outline:none;font-family:inherit;transition:border .18s,background .18s;white-space:pre-wrap;word-break:break-word"
+              onfocus="this.style.borderColor='var(--sage)';this.style.background='#fff'"
+              onblur="this.style.borderColor='var(--border)';this.style.background='var(--cream)'"
+              >${escH(casePhotoNote)}</textarea>
+          </div>
+
         </div>`;
       })()}
 
@@ -1349,6 +1357,14 @@ function toggleSection(hd){
   const open=body.style.display!=='none';
   body.style.display=open?'none':'';
   if(icon) icon.style.transform=open?'rotate(-90deg)':'rotate(0deg)';
+}
+function togglePhotoList(hd){
+  const body=document.getElementById('photo-list-body');
+  const icon=document.getElementById('photo-list-icon');
+  if(!body) return;
+  const open=body.style.display!=='none';
+  body.style.display=open?'none':'';
+  if(icon) icon.textContent=open?'▼':'▲';
 }
 function expandAllSections(){
   document.querySelectorAll('.fsection-body').forEach(b=>b.style.display='');

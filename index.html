@@ -1443,6 +1443,8 @@ function commitQAdd(sectionName, color){
   document.getElementById('fc-badge').textContent = editFields.length+' 個欄位';
   toast(`欄位「${label}」已加入「${sectionName}」`);
 }
+
+function fiHTML(f){
   return `<div class="fi" id="fi-${f.id}" data-fid="${f.id}" draggable="true"
     style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border-bottom:1px solid var(--border2);cursor:default;transition:background .12s;user-select:none"
     ondragstart="onDragStart(event,this)" ondragover="onDragOver(event,this)" ondrop="onDrop(event,this)" ondragend="onDragEnd(event)">

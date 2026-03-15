@@ -671,7 +671,14 @@ function buildTable(cases,fields,p){
         <tbody>
           ${cases.map((c,i)=>`
             <tr>
-              <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px;text-align:center">${c.caseNum||String(i+1).padStart(3,'0')}</td>
+              <td class="tdmuted"
+                onclick="goCase('${c.id}','${p.id}')"
+                title="點擊開啟問卷"
+                style="font-family:'DM Mono',monospace;font-size:11px;text-align:center;cursor:pointer;transition:all .15s"
+                onmouseenter="this.style.background='var(--sage-light)';this.style.color='var(--sage)'"
+                onmouseleave="this.style.background='';this.style.color=''">
+                ${c.caseNum||String(i+1).padStart(3,'0')}
+              </td>
               ${fields.map(f=>`
                 <td class="tbl-cell" data-cid="${c.id}" data-fid="${f.id}" data-type="${f.type}" data-opts="${escH(f.options||'')}"
                   onclick="startCellEdit(this)"
@@ -1828,6 +1835,19 @@ async function saveSettings(pid){
 // ── Project Modal ──────────────────────────────────────────────────────────
 async function showProjModal(pid){
   const p=pid?await dbGet('projects',pid):null;
+  const allProjs=await dbAll('projects');
+  const otherProjs=allProjs.filter(x=>x.id!==pid);
+
+  const copyFromSelect = !p && otherProjs.length ? `
+    <div class="fg" style="margin-bottom:0">
+      <label class="flabel">複製欄位設定自</label>
+      <select class="fselect" id="mp-copy-from">
+        <option value="">使用預設欄位</option>
+        ${otherProjs.map(x=>`<option value="${x.id}">${escH(x.name)}（${(x.fields||[]).length} 個欄位）</option>`).join('')}
+      </select>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">選擇後，新 Project 會完整複製該 Project 的欄位、分區顏色及 AI 備註</div>
+    </div>` : '';
+
   document.body.insertAdjacentHTML('beforeend',`
     <div class="overlay" id="pmodal" onclick="if(event.target.id==='pmodal')closeMod()">
       <div class="modal">
@@ -1835,7 +1855,7 @@ async function showProjModal(pid){
         <div class="modal-bd">
           <div class="fg"><label class="flabel req">Project 名稱</label><input class="finput" id="mp-name" value="${escH(p?.name||'')}" placeholder="例：高血壓研究"></div>
           <div class="fg"><label class="flabel">描述</label><input class="finput" id="mp-desc" value="${escH(p?.description||'')}" placeholder="簡短說明此 Project 用途"></div>
-          ${!p?`<div style="font-size:12px;color:var(--muted);background:#f8fbff;border-radius:8px;padding:10px 13px">建立後可在「欄位設定」中自訂問卷欄位（預設提供標準病例欄位）</div>`:''}
+          ${copyFromSelect}
         </div>
         <div class="modal-ft">
           <button class="btn btn-outline" onclick="closeMod()">取消</button>
@@ -1844,12 +1864,32 @@ async function showProjModal(pid){
       </div>
     </div>`);
 }
+
 function closeMod(){document.getElementById('pmodal')?.remove();}
+
 async function createProj(){
   const name=document.getElementById('mp-name').value.trim();
   if(!name){alert('請輸入名稱');return;}
-  await dbPut('projects',{id:uid(),name,description:document.getElementById('mp-desc').value.trim(),fields:JSON.parse(JSON.stringify(DEFAULT_FIELDS)),createdAt:Date.now()});
-  closeMod();toast('✅ Project 已建立');vProjects();
+  const desc=document.getElementById('mp-desc').value.trim();
+  const copyFromId=document.getElementById('mp-copy-from')?.value||'';
+
+  let fields=JSON.parse(JSON.stringify(DEFAULT_FIELDS));
+  let sectionNotes={};
+
+  if(copyFromId){
+    const src=await dbGet('projects',copyFromId);
+    if(src){
+      // 深拷貝欄位，重新產生 id 避免衝突
+      fields=(src.fields||DEFAULT_FIELDS).map(f=>({...f,id:uid()}));
+      sectionNotes=JSON.parse(JSON.stringify(src.sectionNotes||{}));
+      toast(`✅ 已複製「${src.name}」的欄位設定`);
+    }
+  }
+
+  await dbPut('projects',{id:uid(),name,description:desc,fields,sectionNotes,createdAt:Date.now()});
+  closeMod();
+  if(!copyFromId) toast('✅ Project 已建立');
+  vProjects();
 }
 async function saveProjEdit(pid){
   const p=await dbGet('projects',pid);

@@ -1315,7 +1315,6 @@ async function vSettings(pid){
 // ── 按分區渲染欄位列表 ─────────────────────────────────────────────────────
 function renderFieldsBySection(){
   if(!editFields.length) return `<div style="text-align:center;padding:32px;color:var(--muted);font-size:14px">尚無欄位，請在下方新增</div>`;
-  // 取得所有分區（保持順序）
   const sections=[];
   const seen=new Set();
   editFields.forEach(f=>{if(!seen.has(f.section)){sections.push(f.section);seen.add(f.section);}});
@@ -1326,10 +1325,15 @@ function renderFieldsBySection(){
     return `
       <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px">
         <!-- 分區標題列 -->
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:${color}12;border-radius:9px 9px 0 0;border:1px solid ${color}28;border-bottom:none;margin-bottom:0">
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:${color}12;border-radius:9px 9px 0 0;border:1px solid ${color}28;border-bottom:none">
           <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
           <span class="sec-name-label" data-sec="${escH(sec)}" style="font-size:12px;font-weight:700;color:${color};letter-spacing:1px;text-transform:uppercase;flex:1;cursor:text" onclick="startRenameSection(this)" title="點擊重新命名分區">${escH(sec)}</span>
-          <span style="font-size:11px;color:var(--muted)">${fields.length} 個欄位</span>
+          <span style="font-size:11px;color:var(--muted);margin-right:6px">${fields.length} 個欄位</span>
+          <button onclick="showQuickAddField('${escH(sec)}')"
+            style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${color}40;background:${color}15;color:${color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap;line-height:1"
+            onmouseenter="this.style.background='${color}28'" onmouseleave="this.style.background='${color}15'">
+            ＋ 新增欄位
+          </button>
         </div>
         <!-- 欄位列表 -->
         <div class="sec-fields" data-section="${escH(sec)}" style="border:1px solid ${color}28;border-radius:0 0 9px 9px;overflow:hidden">
@@ -1339,7 +1343,106 @@ function renderFieldsBySection(){
   }).join('');
 }
 
-function fiHTML(f){
+// ── 分區快速新增欄位 ───────────────────────────────────────────────────────
+function showQuickAddField(sectionName){
+  const color = editFields.find(f=>f.section===sectionName)?.sectionColor || COLORS[0];
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="qadd-modal" onclick="if(event.target.id==='qadd-modal')closeQAdd()">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-hd" style="background:${color}12;border-bottom:1px solid ${color}28">
+          <div>
+            <div class="modal-title">新增欄位</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px;font-weight:500">分區：<span style="color:${color};font-weight:700;text-transform:uppercase;letter-spacing:.5px">${escH(sectionName)}</span></div>
+          </div>
+          <button class="btn-icon" onclick="closeQAdd()">✕</button>
+        </div>
+        <div class="modal-bd">
+
+          <div class="fg">
+            <label class="flabel">欄位名稱 <span style="color:var(--red)">＊</span></label>
+            <input class="finput" id="qa-label" placeholder="例：過敏史、手術日期、疼痛指數…" autofocus>
+          </div>
+
+          <div class="fg">
+            <label class="flabel">欄位類型</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="qa-tchips">
+              ${['text','number','date','textarea','select'].map(t=>`
+                <div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selQAType(this)">${TYPE_NAMES[t]}</div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="fg" id="qa-opt-wrap" style="display:none">
+            <label class="flabel">下拉選項（逗號分隔）</label>
+            <input class="finput" id="qa-options" placeholder="例：良好,普通,不佳">
+          </div>
+
+          <div class="fg" style="margin-bottom:0">
+            <label class="flabel">插入位置</label>
+            <select class="fselect" id="qa-position">
+              <option value="end">加在此區最後一個</option>
+              <option value="start">加在此區第一個</option>
+            </select>
+          </div>
+
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeQAdd()">取消</button>
+          <button class="btn btn-primary" onclick="commitQAdd('${escH(sectionName)}','${escH(color)}')">＋ 新增</button>
+        </div>
+      </div>
+    </div>`);
+
+  // Enter 鍵快速新增
+  setTimeout(()=>{
+    const inp = document.getElementById('qa-label');
+    if(inp){
+      inp.focus();
+      inp.addEventListener('keydown', e=>{
+        if(e.key==='Enter') document.querySelector('[onclick*="commitQAdd"]')?.click();
+      });
+    }
+  }, 80);
+}
+
+function closeQAdd(){ document.getElementById('qadd-modal')?.remove(); }
+
+function selQAType(el){
+  document.querySelectorAll('#qa-tchips .tchip').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('qa-opt-wrap').style.display = el.dataset.t==='select' ? '' : 'none';
+}
+
+function commitQAdd(sectionName, color){
+  const label = document.getElementById('qa-label').value.trim();
+  if(!label){ alert('請輸入欄位名稱'); return; }
+  const type = document.querySelector('#qa-tchips .tchip.sel')?.dataset.t || 'text';
+  const options = document.getElementById('qa-options')?.value.trim() || '';
+  const position = document.getElementById('qa-position').value;
+
+  // 沿用該分區現有顏色（color 參數為備用）
+  const existColor = editFields.find(f=>f.section===sectionName)?.sectionColor || color;
+
+  const newField = { id:uid(), label, section:sectionName, sectionColor:existColor, type, options };
+
+  // 找到該分區在 editFields 中的範圍
+  const sectionIndices = editFields.reduce((acc,f,i)=>{ if(f.section===sectionName) acc.push(i); return acc; }, []);
+
+  if(sectionIndices.length === 0){
+    editFields.push(newField);
+  } else if(position === 'start'){
+    editFields.splice(sectionIndices[0], 0, newField);
+  } else {
+    // end：插在該分區最後一個之後
+    editFields.splice(sectionIndices[sectionIndices.length-1]+1, 0, newField);
+  }
+
+  closeQAdd();
+  document.getElementById('flist-wrap').innerHTML = renderFieldsBySection();
+  initDragDrop();
+  document.getElementById('fc-badge').textContent = editFields.length+' 個欄位';
+  toast(`欄位「${label}」已加入「${sectionName}」`);
+}
   return `<div class="fi" id="fi-${f.id}" data-fid="${f.id}" draggable="true"
     style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border-bottom:1px solid var(--border2);cursor:default;transition:background .12s;user-select:none"
     ondragstart="onDragStart(event,this)" ondragover="onDragOver(event,this)" ondrop="onDrop(event,this)" ondragend="onDragEnd(event)">

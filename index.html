@@ -1125,14 +1125,27 @@ async function runSecAIScan(){
       return;
     }
 
-    document.getElementById('sec-result-list').innerHTML=resultItems.map(({field,value})=>`
-      <div style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border2)">
-        <span style="font-size:12px;font-weight:700;color:var(--muted);min-width:100px;flex-shrink:0;padding-top:1px">${escH(field.label)}</span>
-        <span style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all">${escH(value)}</span>
-      </div>`).join('');
+    document.getElementById('sec-result-list').innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位</span>
+        <div style="display:flex;gap:10px">
+          <button onclick="toggleAllSecAI(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
+          <button onclick="toggleAllSecAI(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
+        </div>
+      </div>
+      ${resultItems.map(({field,value})=>`
+        <label style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s"
+          onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" class="sec-ai-check" data-fid="${field.id}" checked
+            style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:3px">${escH(field.label)}</div>
+            <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(value)}</div>
+          </div>
+        </label>`).join('')}`;
     document.getElementById('sec-result').style.display='';
     document.getElementById('sec-apply-btn').style.display='flex';
-    setSecStatus('done',`找到 ${resultItems.length} 個欄位的資料，確認後套用`);
+    setSecStatus('done',`找到 ${resultItems.length} 個欄位，勾選後套用`);
 
   } catch(err){
     setSecStatus('error','辨識失敗：'+err.message);
@@ -1140,17 +1153,27 @@ async function runSecAIScan(){
   btn.disabled=false; btn.textContent='🤖 重新辨識';
 }
 
+function toggleAllSecAI(checked){
+  document.querySelectorAll('#sec-result-list .sec-ai-check').forEach(cb=>cb.checked=checked);
+}
+
 function applySecAIResult(){
-  if(!Object.keys(secScanResult).length){ toast('沒有可套用的資料'); return; }
-  for(const [fid,val] of Object.entries(secScanResult)){
+  const checks=document.querySelectorAll('#sec-result-list .sec-ai-check:checked');
+  if(!checks.length){toast('請至少勾選一個欄位');return;}
+  let count=0;
+  checks.forEach(cb=>{
+    const fid=cb.dataset.fid;
+    const val=secScanResult[fid];
+    if(val===undefined) return;
     formData[fid]=val;
     const el=document.querySelector(`[data-fid="${fid}"]`);
     if(el) el.value=val;
-  }
+    count++;
+  });
   dirty=true;
   document.getElementById('savebar').classList.add('on');
   closeSecAI();
-  toast(`✅ 已套用 ${Object.keys(secScanResult).length} 個欄位，請確認後儲存`);
+  toast(`✅ 已套用 ${count} 個欄位，請確認後儲存`);
 }
 let aiImages = [];      // [{base64, mimeType, dataUrl}]
 let aiParsedResult = {};
@@ -1321,13 +1344,26 @@ ${fieldList}
       return;
     }
 
-    document.getElementById('ai-result-list').innerHTML=resultItems.map(({field,value})=>`
-      <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 14px;border-bottom:1px solid #f0f6fc">
-        <span style="font-size:12px;font-weight:700;color:var(--muted);min-width:110px;flex-shrink:0;padding-top:1px">${escH(field.label)}</span>
-        <span style="font-size:13px;color:var(--navy);font-weight:600;word-break:break-all">${escH(value)}</span>
-      </div>`).join('');
+    document.getElementById('ai-result-list').innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位</span>
+        <div style="display:flex;gap:10px">
+          <button onclick="toggleAllAI(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
+          <button onclick="toggleAllAI(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
+        </div>
+      </div>
+      ${resultItems.map(({field,value})=>`
+        <label style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid #f0f6fc;cursor:pointer;transition:background .12s"
+          onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" class="ai-check" data-fid="${field.id}" checked
+            style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:3px">${escH(field.label)}</div>
+            <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(value)}</div>
+          </div>
+        </label>`).join('')}`;
     document.getElementById('ai-result').style.display='';
-    setAIStatus('done',`辨識完成！從 ${imgs.length} 張圖片中找到 ${resultItems.length} 個欄位`);
+    setAIStatus('done',`辨識完成！找到 ${resultItems.length} 個欄位，勾選後套用`);
 
   } catch(err){
     setAIStatus('error','辨識失敗：'+err.message);
@@ -1336,17 +1372,27 @@ ${fieldList}
   btn.disabled=false;btn.textContent='🤖 開始 Gemini 辨識';
 }
 
+function toggleAllAI(checked){
+  document.querySelectorAll('#ai-result-list .ai-check').forEach(cb=>cb.checked=checked);
+}
+
 function applyAIResult(){
-  if(!Object.keys(aiParsedResult).length){toast('沒有可套用的資料');return;}
-  for(const [fid,val] of Object.entries(aiParsedResult)){
+  const checks=document.querySelectorAll('#ai-result-list .ai-check:checked');
+  if(!checks.length){toast('請至少勾選一個欄位');return;}
+  let count=0;
+  checks.forEach(cb=>{
+    const fid=cb.dataset.fid;
+    const val=aiParsedResult[fid];
+    if(val===undefined) return;
     formData[fid]=val;
     const el=document.querySelector(`[data-fid="${fid}"]`);
     if(el) el.value=val;
-  }
+    count++;
+  });
   dirty=true;
   document.getElementById('savebar').classList.add('on');
   hideAIScan();
-  toast(`✅ 已套用 ${Object.keys(aiParsedResult).length} 個欄位，請確認後儲存`);
+  toast(`✅ 已套用 ${count} 個欄位，請確認後儲存`);
 }
 
 // ── 分區收合 ──────────────────────────────────────────────────────────────

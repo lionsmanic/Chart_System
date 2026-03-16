@@ -505,7 +505,7 @@ let editFields=[];
 
 // ── Section colors ─────────────────────────────────────────────────────────
 const COLORS=['#1d6fa4','#0d9488','#7c3aed','#be185d','#b45309','#1e40af','#0f766e','#6d28d9'];
-const TYPE_NAMES={text:'文字',number:'數字',date:'日期',time:'時間',textarea:'長文字',select:'下拉選單'};
+const TYPE_NAMES={text:'文字',number:'數字',date:'日期',time:'時間',textarea:'長文字',select:'下拉單選',multiselect:'多選框'};
 
 // ── Default fields ─────────────────────────────────────────────────────────
 const DEFAULT_FIELDS=[
@@ -684,7 +684,9 @@ function buildTable(cases,fields,p){
                   onclick="startCellEdit(this)"
                   style="cursor:pointer;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .12s"
                   onmouseenter="this.style.background='#f0f8ff'" onmouseleave="if(!this.classList.contains('editing'))this.style.background=''">
-                  ${escH(c.data[f.id]||'')}
+                  ${f.type==='multiselect'
+                    ? escH((c.data[f.id]||'').split('|').filter(Boolean).join('、'))
+                    : escH(c.data[f.id]||'')}
                 </td>`).join('')}
             </tr>`).join('')}
         </tbody>
@@ -941,10 +943,61 @@ function fInput(f,v){
     const opts=(f.options||'').split(',').filter(Boolean);
     return `<select class="fselect" ${a}><option value="">請選擇</option>${opts.map(o=>`<option ${v===o?'selected':''}>${escH(o)}</option>`).join('')}</select>`;
   }
+  if(f.type==='multiselect'){
+    const opts=(f.options||'').split(',').filter(Boolean);
+    const selected=new Set((v||'').split('|').filter(Boolean));
+    return `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0" data-fid="${f.id}" data-type="multiselect">
+      ${opts.map(o=>`
+        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;border:1.5px solid ${selected.has(o)?'var(--sage)':'var(--border)'};background:${selected.has(o)?'var(--sage-light)':'var(--card)'};cursor:pointer;font-size:13px;font-weight:600;color:${selected.has(o)?'var(--sage)':'var(--ink2)'};transition:all .15s;user-select:none"
+          onclick="toggleMultiSelect(this,'${f.id}')">
+          <span style="font-size:14px">${selected.has(o)?'☑':'☐'}</span>
+          ${escH(o)}
+          <input type="hidden" value="${escH(o)}">
+        </label>`).join('')}
+    </div>`;
+  }
   return `<input class="finput" type="${f.type||'text'}" value="${escH(v)}" ${a}>`;
 }
 
-// ── 照片暫存區 ────────────────────────────────────────────────────────────
+// 統一套用欄位值（支援 multiselect）
+function applyFieldValue(fid, val){
+  formData[fid]=val;
+  const el=document.querySelector(`[data-fid="${fid}"]`);
+  if(!el) return;
+  if(el.dataset.type==='multiselect'){
+    const selected=new Set((val||'').split('|').filter(Boolean));
+    el.querySelectorAll('label').forEach(label=>{
+      const o=label.querySelector('input[type=hidden]').value;
+      const chk=selected.has(o);
+      label.querySelector('span').textContent=chk?'☑':'☐';
+      label.style.borderColor=chk?'var(--sage)':'var(--border)';
+      label.style.background=chk?'var(--sage-light)':'var(--card)';
+      label.style.color=chk?'var(--sage)':'var(--ink2)';
+    });
+  } else {
+    el.value=val;
+  }
+}
+
+function toggleMultiSelect(label, fid){
+  const checked = label.querySelector('span').textContent === '☑';
+  const val = label.querySelector('input[type=hidden]').value;
+  const container = label.closest('[data-type="multiselect"]');
+
+  // Toggle visual
+  label.querySelector('span').textContent = checked ? '☐' : '☑';
+  label.style.borderColor = checked ? 'var(--border)' : 'var(--sage)';
+  label.style.background = checked ? 'var(--card)' : 'var(--sage-light)';
+  label.style.color = checked ? 'var(--ink2)' : 'var(--sage)';
+
+  // Collect all checked values → join with |
+  const allChecked = [...container.querySelectorAll('label')]
+    .filter(l => l.querySelector('span').textContent === '☑')
+    .map(l => l.querySelector('input[type=hidden]').value);
+  formData[fid] = allChecked.join('|');
+  dirty = true;
+  document.getElementById('savebar').classList.add('on');
+}
 let photoBin = [];  // [{base64, mimeType, dataUrl, name}]
 
 function togglePhotoBin(){
@@ -1358,9 +1411,7 @@ function applySecAIResult(){
     const fid=cb.dataset.fid;
     const val=secScanResult[fid];
     if(val===undefined) return;
-    formData[fid]=val;
-    const el=document.querySelector(`[data-fid="${fid}"]`);
-    if(el) el.value=val;
+    applyFieldValue(fid,val);
     count++;
   });
   dirty=true;
@@ -1577,9 +1628,7 @@ function applyAIResult(){
     const fid=cb.dataset.fid;
     const val=aiParsedResult[fid];
     if(val===undefined) return;
-    formData[fid]=val;
-    const el=document.querySelector(`[data-fid="${fid}"]`);
-    if(el) el.value=val;
+    applyFieldValue(fid,val);
     count++;
   });
   dirty=true;
@@ -1717,7 +1766,7 @@ async function vSettings(pid){
           <div class="fg">
             <label class="flabel">欄位類型</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px" id="tchips">
-              ${['text','number','date','time','textarea','select'].map(t=>`<div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selType(this)">${TYPE_NAMES[t]}</div>`).join('')}
+              ${['text','number','date','time','textarea','select','multiselect'].map(t=>`<div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selType(this)">${TYPE_NAMES[t]}</div>`).join('')}
             </div>
           </div>
           <div class="fg" id="opt-wrap" style="display:none">
@@ -1885,7 +1934,7 @@ function showQuickAddField(sectionName){
           <div class="fg">
             <label class="flabel">欄位類型</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="qa-tchips">
-              ${['text','number','date','time','textarea','select'].map(t=>`
+              ${['text','number','date','time','textarea','select','multiselect'].map(t=>`
                 <div class="tchip ${t==='text'?'sel':''}" data-t="${t}" onclick="selQAType(this)">${TYPE_NAMES[t]}</div>
               `).join('')}
             </div>
@@ -1929,7 +1978,7 @@ function closeQAdd(){ document.getElementById('qadd-modal')?.remove(); }
 function selQAType(el){
   document.querySelectorAll('#qa-tchips .tchip').forEach(c=>c.classList.remove('sel'));
   el.classList.add('sel');
-  document.getElementById('qa-opt-wrap').style.display = el.dataset.t==='select' ? '' : 'none';
+  document.getElementById('qa-opt-wrap').style.display = ['select','multiselect'].includes(el.dataset.t) ? '' : 'none';
 }
 
 function commitQAdd(sectionName, color){
@@ -2060,13 +2109,13 @@ function editFieldInline(fid){
           <div class="fg">
             <label class="flabel">欄位類型</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="ef-tchips">
-              ${['text','number','date','time','textarea','select'].map(t=>`
+              ${['text','number','date','time','textarea','select','multiselect'].map(t=>`
                 <div class="tchip ${t===f.type?'sel':''}" data-t="${t}" onclick="selEFType(this)">${TYPE_NAMES[t]}</div>
               `).join('')}
             </div>
           </div>
 
-          <div class="fg" id="ef-opt-wrap" style="${f.type==='select'?'':'display:none'}">
+          <div class="fg" id="ef-opt-wrap" style="${['select','multiselect'].includes(f.type)?'':'display:none'}">
             <label class="flabel">下拉選項（逗號分隔）</label>
             <input class="finput" id="ef-options" value="${escH(f.options||'')}" placeholder="例：良好,普通,不佳">
             <div style="font-size:12px;color:var(--muted);margin-top:5px">目前選項：
@@ -2108,7 +2157,7 @@ function selEFType(el){
   el.classList.add('sel');
   // 切換到 select 時顯示選項欄，其他類型隱藏
   const wrap = document.getElementById('ef-opt-wrap');
-  if(wrap) wrap.style.display = el.dataset.t==='select' ? '' : 'none';
+  if(wrap) wrap.style.display = ['select','multiselect'].includes(el.dataset.t) ? '' : 'none';
 }
 
 function saveFieldEdit(fid){
@@ -2122,7 +2171,7 @@ function saveFieldEdit(fid){
   if(!newLabel){alert('請輸入欄位名稱');return;}
   f.label=newLabel; f.section=newSec; f.sectionColor=newColor;
   f.type=newType;
-  f.options = newType==='select' ? newOpts : '';
+  f.options = ['select','multiselect'].includes(newType) ? newOpts : '';
   // 同步同分區其他欄位顏色
   editFields.forEach(x=>{if(x.section===newSec) x.sectionColor=newColor;});
   closeEF();
@@ -2169,7 +2218,7 @@ function initDragDrop(){
   // re-bind already handled by inline handlers; nothing extra needed
 }
 
-function selType(el){document.querySelectorAll('.tchip').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');document.getElementById('opt-wrap').style.display=el.dataset.t==='select'?'':'none';}
+function selType(el){document.querySelectorAll('.tchip').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');document.getElementById('opt-wrap').style.display=['select','multiselect'].includes(el.dataset.t)?'':'none';}
 function selColor(el){document.querySelectorAll('#cpicker .cdot').forEach(c=>c.classList.remove('act'));el.classList.add('act');}
 
 function addField(){
@@ -2318,6 +2367,53 @@ function startCellEdit(td){
     el=document.createElement('select');
     el.style.cssText='width:100%;padding:8px 10px;border:none;outline:none;font-size:14px;font-family:inherit;background:#fff;cursor:pointer';
     el.innerHTML=`<option value="">—</option>${opts.map(o=>`<option ${o===curVal?'selected':''}>${escH(o)}</option>`).join('')}`;
+  } else if(type==='multiselect'){
+    // 渲染 checkbox 列表
+    const curSet=new Set(curVal.split('|').filter(Boolean));
+    const wrap=document.createElement('div');
+    wrap.style.cssText='padding:6px 8px;display:flex;flex-wrap:wrap;gap:6px;min-width:160px';
+    opts.forEach(o=>{
+      const lbl=document.createElement('label');
+      lbl.style.cssText='display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;border:1.5px solid;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;transition:all .12s';
+      const checked=curSet.has(o);
+      lbl.style.borderColor=checked?'var(--sage)':'var(--border)';
+      lbl.style.background=checked?'var(--sage-light)':'var(--card)';
+      lbl.style.color=checked?'var(--sage)':'var(--ink2)';
+      const cb=document.createElement('input');
+      cb.type='checkbox'; cb.value=o; cb.checked=checked;
+      cb.style.cssText='width:14px;height:14px;accent-color:var(--sage);cursor:pointer';
+      cb.addEventListener('change',()=>{
+        lbl.style.borderColor=cb.checked?'var(--sage)':'var(--border)';
+        lbl.style.background=cb.checked?'var(--sage-light)':'var(--card)';
+        lbl.style.color=cb.checked?'var(--sage)':'var(--ink2)';
+      });
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(o));
+      wrap.appendChild(lbl);
+    });
+    // 用自訂 commit 邏輯
+    td.textContent='';
+    td.appendChild(wrap);
+    // 點外面觸發 commit
+    const multiCommit=async(e)=>{
+      if(td.contains(e.target)) return;
+      document.removeEventListener('click',multiCommit,true);
+      const newVal=[...wrap.querySelectorAll('input:checked')].map(cb=>cb.value).join('|');
+      td.classList.remove('editing');
+      td.style.boxShadow='';td.style.padding='';
+      td.textContent=newVal.replace(/\|/g,'、');
+      td.style.background='';
+      td.onmouseenter=()=>td.style.background='#f0f8ff';
+      td.onmouseleave=()=>td.style.background='';
+      td.onclick=()=>startCellEdit(td);
+      if(newVal===curVal.replace(/\|/g,'、')||newVal===curVal) return;
+      const c=await dbGet('cases',cid);
+      if(!c) return;
+      c.data[fid]=newVal; c.updatedAt=Date.now();
+      await dbPut('cases',c); toast('✅ 已更新');
+    };
+    setTimeout(()=>document.addEventListener('click',multiCommit,true),100);
+    return;
   } else if(type==='textarea'){
     el=document.createElement('textarea');
     el.style.cssText='width:100%;min-height:72px;padding:8px 10px;border:none;outline:none;font-size:14px;font-family:inherit;resize:vertical;background:#fff';

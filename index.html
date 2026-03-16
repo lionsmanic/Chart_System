@@ -789,7 +789,34 @@ async function vCase(){
         </div>`;
       })()}
 
-      <!-- 全域 AI 掃描區塊（預設收起，作為備用）-->
+      <!-- 📦 照片暫存區 -->
+      <div style="border-radius:14px;overflow:hidden;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,30,34,.08);border:1px solid var(--border2)">
+        <div onclick="togglePhotoBin()" style="background:var(--ink2);padding:12px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
+          <span style="font-size:17px">🗂️</span>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">照片暫存區</div>
+            <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:1px">先將所有照片拖曳到此，AI 掃各分區時直接從此選取</div>
+          </div>
+          <span id="bin-count-badge" style="font-size:11px;color:rgba(240,235,225,.5);font-family:'DM Mono',monospace">0 張</span>
+          <span id="photo-bin-icon" style="font-size:13px;color:rgba(240,235,225,.4);margin-left:4px">▲</span>
+        </div>
+        <div id="photo-bin-body" style="background:var(--card);padding:16px">
+          <!-- 上傳區 -->
+          <div id="bin-upload-area"
+            onclick="document.getElementById('bin-file-input').click()"
+            ondragover="event.preventDefault();this.style.background='var(--sage-light)';this.style.borderColor='var(--sage)'"
+            ondragleave="this.style.background='var(--cream)';this.style.borderColor='var(--border)'"
+            ondrop="handleBinDrop(event)"
+            style="border:1.5px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;background:var(--cream);transition:all .2s;margin-bottom:12px">
+            <div style="font-size:26px;margin-bottom:6px;opacity:.5">📂</div>
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此或拖曳所有照片到這裡</div>
+            <div style="font-size:12px;color:var(--muted)">一次放入全部，再逐區分配給 AI 判讀</div>
+            <input type="file" id="bin-file-input" accept="image/*" multiple style="display:none" onchange="handleBinFiles(this)">
+          </div>
+          <!-- 縮圖格 -->
+          <div id="bin-grid" style="display:flex;flex-wrap:wrap;gap:10px"></div>
+        </div>
+      </div>
       <div id="ai-scan-panel" style="display:none;margin-bottom:20px;border-radius:14px;border:2px solid #bfdbfe;overflow:hidden;box-shadow:0 2px 16px rgba(59,130,246,.1)">
         <div style="background:var(--ink);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)">
           <div>
@@ -917,6 +944,95 @@ function fInput(f,v){
   return `<input class="finput" type="${f.type||'text'}" value="${escH(v)}" ${a}>`;
 }
 
+// ── 照片暫存區 ────────────────────────────────────────────────────────────
+let photoBin = [];  // [{base64, mimeType, dataUrl, name}]
+
+function togglePhotoBin(){
+  const body=document.getElementById('photo-bin-body');
+  const icon=document.getElementById('photo-bin-icon');
+  if(!body) return;
+  const open=body.style.display!=='none';
+  body.style.display=open?'none':'';
+  if(icon) icon.textContent=open?'▼':'▲';
+}
+
+function handleBinDrop(e){
+  e.preventDefault();
+  document.getElementById('bin-upload-area').style.background='var(--cream)';
+  document.getElementById('bin-upload-area').style.borderColor='var(--border)';
+  const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));
+  if(files.length) addToBin(files);
+}
+function handleBinFiles(input){
+  const files=[...input.files].filter(f=>f.type.startsWith('image/'));
+  if(files.length) addToBin(files);
+  input.value='';
+}
+
+function addToBin(files){
+  let done=0;
+  files.forEach(file=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      photoBin.push({
+        base64:e.target.result.split(',')[1],
+        mimeType:file.type||'image/jpeg',
+        dataUrl:e.target.result,
+        name:file.name
+      });
+      done++;
+      if(done===files.length) renderBin();
+    };
+    r.readAsDataURL(file);
+  });
+}
+
+function removeFromBin(idx){
+  photoBin.splice(idx,1);
+  renderBin();
+}
+
+function renderBin(){
+  const grid=document.getElementById('bin-grid');
+  const badge=document.getElementById('bin-count-badge');
+  if(badge) badge.textContent=photoBin.length+' 張';
+  if(!grid) return;
+  if(!photoBin.length){
+    grid.innerHTML='';
+    document.getElementById('bin-upload-area').style.display='';
+    return;
+  }
+  document.getElementById('bin-upload-area').style.display='';
+  grid.innerHTML=photoBin.map((img,i)=>`
+    <div style="position:relative;flex-shrink:0;border-radius:10px;overflow:hidden;border:2px solid var(--border2);box-shadow:0 1px 6px rgba(28,30,34,.08)">
+      <img src="${img.dataUrl}" style="width:90px;height:90px;object-fit:cover;display:block">
+      <button onclick="removeFromBin(${i})"
+        style="position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(176,58,46,.85);color:#fff;font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center">✕</button>
+      <div style="padding:4px 6px;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;background:var(--cream);max-width:90px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+        title="${escH(img.name)}">${escH(img.name)}</div>
+    </div>`).join('');
+}
+
+// 暫存區選取互動
+function toggleBinPick(el){
+  const sel=el.classList.contains('selected');
+  el.classList.toggle('selected',!sel);
+  el.style.borderColor=!sel?'var(--sage)':'var(--border)';
+  el.style.boxShadow=!sel?'0 0 0 2px var(--sage)':'none';
+  const check=el.querySelector('.pick-check');
+  if(check){ check.textContent=!sel?'✓':'　'; check.style.background=!sel?'var(--sage)':'rgba(255,255,255,.85)'; check.style.color=!sel?'#fff':''; }
+  const count=document.getElementById('bin-pick-count');
+  if(count) count.textContent=document.querySelectorAll('.bin-pick-thumb.selected').length;
+}
+
+function switchSecSrc(src){
+  document.getElementById('sec-src-bin').classList.toggle('active',src==='bin');
+  document.getElementById('sec-src-upload').classList.toggle('active',src==='upload');
+  document.getElementById('sec-bin-picker').style.display=src==='bin'?'':'none';
+  document.getElementById('sec-upload-panel').style.display=src==='upload'?'':'none';
+  resetSecScan();
+}
+
 // ── 分區 AI 掃描 Modal ────────────────────────────────────────────────────
 let secScanImages = [];   // 分區掃描的圖片
 let secScanResult = {};   // 分區掃描結果
@@ -967,6 +1083,41 @@ async function showSectionAIScan(sectionName){
             </div>
           </div>
 
+          <!-- 來源切換 tabs -->
+          <div style="display:flex;gap:4px;background:var(--border2);border-radius:10px;padding:3px;margin-bottom:14px">
+            <button id="sec-src-bin" onclick="switchSecSrc('bin')"
+              class="tab active" style="flex:1;font-size:13px;padding:8px 10px;border-radius:8px">
+              🗂️ 從暫存區選取
+            </button>
+            <button id="sec-src-upload" onclick="switchSecSrc('upload')"
+              class="tab" style="flex:1;font-size:13px;padding:8px 10px;border-radius:8px">
+              📂 重新上傳
+            </button>
+          </div>
+
+          <!-- 暫存區選取面板 -->
+          <div id="sec-bin-picker" style="margin-bottom:14px">
+            ${photoBin.length===0?`
+              <div style="text-align:center;padding:24px;background:var(--cream);border-radius:10px;color:var(--muted)">
+                <div style="font-size:24px;margin-bottom:8px;opacity:.4">🗂️</div>
+                <div style="font-size:13px;font-weight:600">暫存區尚無照片</div>
+                <div style="font-size:12px;margin-top:4px">請先將照片拖入問卷頁面的「照片暫存區」</div>
+              </div>`:`
+              <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">點選要使用的照片（可多選）</div>
+              <div style="display:flex;flex-wrap:wrap;gap:10px">
+                ${photoBin.map((img,i)=>`
+                  <div class="bin-pick-thumb" data-idx="${i}" onclick="toggleBinPick(this)"
+                    style="position:relative;width:90px;flex-shrink:0;cursor:pointer;border-radius:10px;overflow:hidden;border:2.5px solid var(--border);transition:all .18s">
+                    <img src="${img.dataUrl}" style="width:90px;height:90px;object-fit:cover;display:block">
+                    <div style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.85);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s" class="pick-check">　</div>
+                    <div style="padding:4px 6px;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;background:var(--cream);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(img.name)}</div>
+                  </div>`).join('')}
+              </div>
+              <div style="font-size:12px;color:var(--muted);margin-top:8px">已選 <span id="bin-pick-count">0</span> 張</div>`}
+          </div>
+
+          <!-- 重新上傳面板（預設隱藏） -->
+          <div id="sec-upload-panel" style="display:none">
           <!-- 上傳區 -->
           <div id="sec-upload-area" style="border:1.5px dashed var(--border);border-radius:12px;padding:22px;text-align:center;cursor:pointer;background:var(--card);transition:all .2s;margin-bottom:14px"
             onclick="document.getElementById('sec-file-input').click()"
@@ -984,6 +1135,7 @@ async function showSectionAIScan(sectionName){
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選 <span id="sec-img-count"></span> 張照片</div>
             <div id="sec-thumbs-grid" style="display:flex;gap:8px;flex-wrap:wrap"></div>
           </div>
+          </div><!-- end sec-upload-panel -->
 
           <!-- 狀態列 -->
           <div id="sec-status" style="display:none;padding:11px 14px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;margin-bottom:14px">
@@ -1081,8 +1233,18 @@ function setSecStatus(state,msg){
 }
 
 async function runSecAIScan(){
-  const imgs=secScanImages.filter(Boolean);
-  if(!imgs.length){ toast('請先選擇圖片'); return; }
+  // 判斷來源：暫存區 or 重新上傳
+  const binPicker=document.getElementById('sec-bin-picker');
+  const binMode=binPicker&&binPicker.style.display!=='none';
+  let imgs;
+  if(binMode){
+    const selected=document.querySelectorAll('.bin-pick-thumb.selected');
+    if(!selected.length){ toast('請先點選暫存區的照片'); return; }
+    imgs=[...selected].map(el=>photoBin[parseInt(el.dataset.idx)]).filter(Boolean);
+  } else {
+    imgs=secScanImages.filter(Boolean);
+    if(!imgs.length){ toast('請先選擇圖片'); return; }
+  }
   const apiKey=document.getElementById('sec-gemini-key')?.value.trim()||getGeminiKey();
   if(!apiKey){ toast('請先輸入 Gemini API Key'); return; }
 
@@ -1419,6 +1581,10 @@ function expandAllSections(){
   const pi=document.getElementById('photo-list-icon');
   if(pl) pl.style.display='';
   if(pi) pi.textContent='▲';
+  const pb=document.getElementById('photo-bin-body');
+  const pbi=document.getElementById('photo-bin-icon');
+  if(pb) pb.style.display='';
+  if(pbi) pbi.textContent='▲';
 }
 function collapseAllSections(){
   document.querySelectorAll('.fsection-body').forEach(b=>b.style.display='none');
@@ -1427,6 +1593,10 @@ function collapseAllSections(){
   const pi=document.getElementById('photo-list-icon');
   if(pl) pl.style.display='none';
   if(pi) pi.textContent='▼';
+  const pb=document.getElementById('photo-bin-body');
+  const pbi=document.getElementById('photo-bin-icon');
+  if(pb) pb.style.display='none';
+  if(pbi) pbi.textContent='▼';
 }
 
 async function saveCase(){

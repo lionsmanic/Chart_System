@@ -664,22 +664,32 @@ function buildTable(cases,fields,p){
     </div>
 
     <!-- 貼上欄位工具列（選中欄位後出現）-->
-    <div id="paste-toolbar" style="display:none;margin-bottom:12px;background:var(--ink);border-radius:12px;padding:14px 18px;display:none;align-items:flex-start;gap:14px;flex-wrap:wrap">
+    <div id="paste-toolbar" style="display:none;margin-bottom:12px;background:var(--ink);border-radius:12px;padding:14px 18px;align-items:flex-start;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:200px">
-        <div style="font-size:12px;font-weight:700;color:var(--cream);margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:var(--cream);margin-bottom:10px">
           貼上欄位：<span id="paste-col-label" style="color:var(--sage2)"></span>
         </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <label style="font-size:12px;color:rgba(240,235,225,.6);white-space:nowrap">從第</label>
+          <input type="number" id="paste-start-row" min="1" value="1"
+            style="width:72px;padding:6px 10px;border-radius:8px;border:1.5px solid rgba(240,235,225,.2);background:rgba(255,255,255,.1);color:var(--cream);font-size:14px;font-weight:700;text-align:center;outline:none;font-family:inherit"
+            onfocus="this.style.borderColor='var(--sage)'"
+            onblur="this.style.borderColor='rgba(240,235,225,.2)'">
+          <label style="font-size:12px;color:rgba(240,235,225,.6);white-space:nowrap">筆開始貼入</label>
+          <span id="paste-start-hint" style="font-size:11px;color:rgba(240,235,225,.35);margin-left:4px"></span>
+        </div>
         <textarea id="paste-input"
-          placeholder="從 Excel 複製一欄後在此貼上（Ctrl+V / ⌘V）&#10;每行對應一筆病例，由上至下依序填入"
+          placeholder="從 Excel 複製一欄後在此貼上（Ctrl+V / ⌘V）&#10;每行對應一筆病例，由上往下依序填入"
           style="width:100%;min-height:80px;padding:9px 12px;border-radius:9px;border:1.5px solid rgba(240,235,225,.2);background:rgba(255,255,255,.08);color:var(--cream);font-size:13px;line-height:1.6;font-family:inherit;outline:none;resize:vertical"
           onfocus="this.style.borderColor='var(--sage)'"
           onblur="this.style.borderColor='rgba(240,235,225,.2)'"
+          oninput="updatePasteHint()"
           ></textarea>
-        <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:5px">
-          目前共 <span id="paste-case-count" style="color:rgba(240,235,225,.7);font-weight:700">${cases.length}</span> 筆病例 · 若貼入行數多於現有病例數，會自動新增病例
+        <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:5px" id="paste-row-hint">
+          目前共 <span id="paste-case-count" style="color:rgba(240,235,225,.7);font-weight:700">${cases.length}</span> 筆病例 · 超出現有數量的行會自動新增病例
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;padding-top:22px">
+      <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;padding-top:38px">
         <button onclick="executePasteCol('${p.id}')" class="btn btn-success" style="white-space:nowrap">✅ 確認貼入</button>
         <button onclick="closePasteToolbar()" class="btn btn-ghost btn-sm" style="justify-content:center">取消</button>
       </div>
@@ -2575,7 +2585,6 @@ async function importCSV(input, pid){
 let pasteColFid = null;
 
 function selectPasteCol(th, fid, label){
-  // 清除之前的選中狀態
   document.querySelectorAll('#summary-table th.col-selected').forEach(el=>{
     el.classList.remove('col-selected');
     el.style.background=''; el.style.color='';
@@ -2583,14 +2592,25 @@ function selectPasteCol(th, fid, label){
   pasteColFid = fid;
   th.classList.add('col-selected');
   th.style.background='var(--sage)'; th.style.color='#fff';
-  // 顯示工具列
   const tb=document.getElementById('paste-toolbar');
   if(tb){
     tb.style.display='flex';
     document.getElementById('paste-col-label').textContent=label;
     document.getElementById('paste-input').value='';
-    document.getElementById('paste-input').focus();
+    document.getElementById('paste-start-row').value='1';
+    document.getElementById('paste-start-hint').textContent='';
     tb.scrollIntoView({behavior:'smooth',block:'nearest'});
+    document.getElementById('paste-input').focus();
+  }
+}
+
+function updatePasteHint(){
+  const raw=document.getElementById('paste-input').value;
+  const rows=raw.split(/\r?\n/).map(r=>r.replace(/\t.*$/,'').trim()).filter(r=>r!=='');
+  const start=parseInt(document.getElementById('paste-start-row')?.value||'1')||1;
+  const hint=document.getElementById('paste-start-hint');
+  if(hint && rows.length>0){
+    hint.textContent=`共 ${rows.length} 行 → 填入第 ${start} 至 ${start+rows.length-1} 筆`;
   }
 }
 
@@ -2602,15 +2622,19 @@ function closePasteToolbar(){
     el.classList.remove('col-selected');
     el.style.background=''; el.style.color='';
   });
-  document.getElementById('paste-input').value='';
+  if(document.getElementById('paste-input'))
+    document.getElementById('paste-input').value='';
 }
 
 async function executePasteCol(pid){
   if(!pasteColFid){ toast('請先點選欄位標題'); return; }
   const raw=document.getElementById('paste-input').value;
-  // 解析貼上的值：支援 Tab / 換行分隔（Excel 複製單欄為換行）
   const rows=raw.split(/\r?\n/).map(r=>r.replace(/\t.*$/,'').trim()).filter(r=>r!=='');
   if(!rows.length){ toast('請先貼上資料'); return; }
+
+  // 從第幾筆開始（1-based → 0-based index）
+  const startRow = Math.max(1, parseInt(document.getElementById('paste-start-row')?.value||'1')||1);
+  const startIdx = startRow - 1;
 
   const p=await dbGet('projects',pid);
   const existCases=await dbIdx('cases','pid',pid);
@@ -2618,23 +2642,22 @@ async function executePasteCol(pid){
   let updated=0, created=0;
   for(let i=0;i<rows.length;i++){
     const val=rows[i];
-    if(i<existCases.length){
-      // 更新現有病例
-      const c=existCases[i];
+    const targetIdx=startIdx+i;
+    if(targetIdx<existCases.length){
+      // 更新現有病例，不動其他欄位
+      const c=existCases[targetIdx];
       c.data[pasteColFid]=val;
       c.updatedAt=Date.now();
       await dbPut('cases',c);
       updated++;
     } else {
-      // 超出現有數量 → 自動新增病例
+      // 超出現有數量 → 自動新增
       const newC={
-        id:uid(),
-        projectId:pid,
+        id:uid(), projectId:pid,
         caseNum:String(existCases.length+created+1).padStart(3,'0'),
         data:{[pasteColFid]:val},
         createdAt:Date.now()
       };
-      // 預填 defaultPhotoNote
       if(p.defaultPhotoNote) newC.data['__photoNote']=p.defaultPhotoNote;
       await dbPut('cases',newC);
       created++;
@@ -2642,9 +2665,8 @@ async function executePasteCol(pid){
   }
 
   closePasteToolbar();
-  toast(`✅ 已更新 ${updated} 筆${created?`、新增 ${created} 筆病例`:''}`);
+  toast(`✅ 從第 ${startRow} 筆起，已更新 ${updated} 筆${created?`、新增 ${created} 筆`:''}`);
 
-  // 重新渲染總覽表
   const newCases=await dbIdx('cases','pid',pid);
   const orderedFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
   document.getElementById('tc-table').innerHTML=buildTable(newCases,orderedFields,p);

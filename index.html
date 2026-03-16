@@ -1456,6 +1456,7 @@ async function vSettings(pid){
   const p=await dbGet('projects',pid);
   editFields=JSON.parse(JSON.stringify(p.fields||DEFAULT_FIELDS));
   editSectionNotes=JSON.parse(JSON.stringify(p.sectionNotes||{}));
+  const defaultPhotoNote = p.defaultPhotoNote||'';
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
   document.getElementById('hactions').innerHTML=`
     <button class="btn btn-outline" onclick="goProject('${pid}')">← 返回</button>
@@ -1465,6 +1466,24 @@ async function vSettings(pid){
     <div style="max-width:760px">
       <div class="page-title">問卷欄位設定</div>
       <div class="page-sub">拖曳 ⠿ 調整欄位順序・點欄位名稱可直接編輯・可跨分區移動欄位</div>
+
+      <!-- 拍照清單補充備註預設文字 -->
+      <div class="card" style="margin-bottom:22px">
+        <div class="card-header">
+          <span style="font-weight:700;font-size:15px">📝 拍照清單補充備註（預設文字）</span>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.6">
+            每次新增病例時，「拍照清單」下方的「補充備註」欄位會自動帶入以下文字，統一提醒拍照流程或注意事項。
+          </div>
+          <textarea class="ftextarea" id="default-photo-note"
+            placeholder="例：請依序拍攝：1. 掛號頁面 2. 就診記錄 3. 處方籤 4. 檢驗報告&#10;拍攝時請確認文字清晰，避免反光..."
+            oninput="autoResizeTA(this)"
+            style="min-height:100px"
+            >${escH(defaultPhotoNote)}</textarea>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">若留空，補充備註預設為空白，可在各病例中自由輸入</div>
+        </div>
+      </div>
 
       <!-- 現有欄位（按分區分組）-->
       <div class="card" style="margin-bottom:22px">
@@ -1983,11 +2002,11 @@ function removeField(fid){
 async function saveSettings(pid){
   const p=await dbGet('projects',pid);
   p.fields=editFields;
-  // 收集所有分區備註（從 DOM 讀取最新值）
   document.querySelectorAll('.sec-note-input').forEach(el=>{
     editSectionNotes[el.dataset.sec]=el.value;
   });
   p.sectionNotes=editSectionNotes;
+  p.defaultPhotoNote=document.getElementById('default-photo-note')?.value||'';
   await dbPut('projects',p);
   toast('✅ 欄位設定已儲存');
   goProject(pid);
@@ -2036,18 +2055,19 @@ async function createProj(){
 
   let fields=JSON.parse(JSON.stringify(DEFAULT_FIELDS));
   let sectionNotes={};
+  let defaultPhotoNote='';
 
   if(copyFromId){
     const src=await dbGet('projects',copyFromId);
     if(src){
-      // 深拷貝欄位，重新產生 id 避免衝突
       fields=(src.fields||DEFAULT_FIELDS).map(f=>({...f,id:uid()}));
       sectionNotes=JSON.parse(JSON.stringify(src.sectionNotes||{}));
+      if(src.defaultPhotoNote) defaultPhotoNote=src.defaultPhotoNote;
       toast(`✅ 已複製「${src.name}」的欄位設定`);
     }
   }
 
-  await dbPut('projects',{id:uid(),name,description:desc,fields,sectionNotes,createdAt:Date.now()});
+  await dbPut('projects',{id:uid(),name,description:desc,fields,sectionNotes,defaultPhotoNote,createdAt:Date.now()});
   closeMod();
   if(!copyFromId) toast('✅ Project 已建立');
   vProjects();
@@ -2069,7 +2089,10 @@ async function delProject(pid){
 // ── New case ───────────────────────────────────────────────────────────────
 async function newCase(pid){
   const cs=await dbIdx('cases','pid',pid);
-  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data:{},createdAt:Date.now()};
+  const p=await dbGet('projects',pid);
+  const defaultNote=p.defaultPhotoNote||'';
+  const data=defaultNote?{'__photoNote':defaultNote}:{};
+  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data,createdAt:Date.now()};
   await dbPut('cases',c);goCase(c.id,pid);
 }
 

@@ -999,18 +999,47 @@ function renderBin(){
   if(!grid) return;
   if(!photoBin.length){
     grid.innerHTML='';
-    document.getElementById('bin-upload-area').style.display='';
     return;
   }
-  document.getElementById('bin-upload-area').style.display='';
-  grid.innerHTML=photoBin.map((img,i)=>`
-    <div style="position:relative;flex-shrink:0;border-radius:10px;overflow:hidden;border:2px solid var(--border2);box-shadow:0 1px 6px rgba(28,30,34,.08)">
-      <img src="${img.dataUrl}" style="width:90px;height:90px;object-fit:cover;display:block">
+  const hasHeic=photoBin.some(img=>img.name.toLowerCase().endsWith('.heic')||img.name.toLowerCase().endsWith('.heif'));
+  grid.innerHTML=(hasHeic?`
+    <div style="width:100%;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;font-size:13px;color:#92400E;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px">
+      <span style="flex-shrink:0;font-size:16px">⚠️</span>
+      <div>
+        <strong>HEIC 格式無法在瀏覽器預覽</strong><br>
+        建議：iPhone 設定 → 相機 → 格式 → <strong>最相容</strong>（改拍 JPEG）<br>
+        <span style="opacity:.7">或：上傳前在 Mac 用「預覽程式」另存為 JPEG</span>
+      </div>
+    </div>`:'')
+  +photoBin.map((img,i)=>`
+    <div style="flex-shrink:0;border-radius:10px;overflow:hidden;border:2px solid var(--border2);box-shadow:0 1px 6px rgba(28,30,34,.08);width:104px">
+      ${img.dataUrl&&!img.name.toLowerCase().match(/\.heic$|\.heif$/)
+        ?`<img src="${img.dataUrl}" style="width:104px;height:90px;object-fit:cover;display:block">`
+        :`<div style="width:104px;height:90px;background:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+            <span style="font-size:22px;opacity:.4">🖼️</span>
+            <span style="font-size:10px;color:var(--muted);font-weight:700">HEIC</span>
+          </div>`}
       <button onclick="removeFromBin(${i})"
         style="position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(176,58,46,.85);color:#fff;font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center">✕</button>
-      <div style="padding:4px 6px;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;background:var(--cream);max-width:90px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-        title="${escH(img.name)}">${escH(img.name)}</div>
+      <div style="padding:5px 6px;background:var(--cream);border-top:1px solid var(--border2)">
+        <div class="bin-label" data-idx="${i}"
+          contenteditable="true"
+          title="點擊編輯標籤"
+          onblur="updateBinLabel(${i},this)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}"
+          style="font-size:11px;color:var(--ink2);font-family:'Noto Sans TC',sans-serif;outline:none;min-height:16px;word-break:break-all;cursor:text;border-bottom:1px dashed transparent;transition:border .15s"
+          onfocus="this.style.borderBottomColor='var(--sage)'"
+          onblur2="this.style.borderBottomColor='transparent'"
+          >${escH(img.label||img.name)}</div>
+      </div>
     </div>`).join('');
+  // 修正絕對定位的刪除按鈕需要相對父元素
+  grid.querySelectorAll('[style*="flex-shrink:0"]').forEach(el=>el.style.position='relative');
+}
+
+function updateBinLabel(idx,el){
+  el.style.borderBottomColor='transparent';
+  if(photoBin[idx]) photoBin[idx].label=el.textContent.trim()||photoBin[idx].name;
 }
 
 // 暫存區選取互動
@@ -1108,9 +1137,11 @@ async function showSectionAIScan(sectionName){
                 ${photoBin.map((img,i)=>`
                   <div class="bin-pick-thumb" data-idx="${i}" onclick="toggleBinPick(this)"
                     style="position:relative;width:90px;flex-shrink:0;cursor:pointer;border-radius:10px;overflow:hidden;border:2.5px solid var(--border);transition:all .18s">
-                    <img src="${img.dataUrl}" style="width:90px;height:90px;object-fit:cover;display:block">
+                    ${img.dataUrl&&!img.name.toLowerCase().match(/\.heic$|\.heif$/)
+                      ?`<img src="${img.dataUrl}" style="width:90px;height:90px;object-fit:cover;display:block">`
+                      :`<div style="width:90px;height:90px;background:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px"><span style="font-size:20px;opacity:.4">🖼️</span><span style="font-size:10px;color:var(--muted);font-weight:700">HEIC</span></div>`}
                     <div style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.85);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s" class="pick-check">　</div>
-                    <div style="padding:4px 6px;font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;background:var(--cream);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(img.name)}</div>
+                    <div style="padding:4px 6px;font-size:10px;color:var(--muted);font-family:'Noto Sans TC',sans-serif;background:var(--cream);text-align:center;word-break:break-all;line-height:1.4">${escH(img.label||img.name)}</div>
                   </div>`).join('')}
               </div>
               <div style="font-size:12px;color:var(--muted);margin-top:8px">已選 <span id="bin-pick-count">0</span> 張</div>`}

@@ -659,54 +659,21 @@ function buildTable(cases,fields,p){
   if(!cases.length) return `<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">尚無資料</div></div>`;
   return `
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span>💡 點欄位標題「貼上」可從 Excel 一次貼入整欄 · 點儲存格可單格修改</span>
+      <span>💡 點欄位標題可從 Excel 貼入整欄 · 點儲存格可單格修改</span>
       <span style="margin-left:auto;font-size:12px;background:var(--sage-light);color:var(--sage);padding:4px 12px;border-radius:20px;font-weight:600">修改後按右上角「📥 匯入 CSV」匯回</span>
     </div>
-
-    <!-- 貼上欄位工具列（選中欄位後出現）-->
-    <div id="paste-toolbar" style="display:none;margin-bottom:12px;background:var(--ink);border-radius:12px;padding:14px 18px;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div style="flex:1;min-width:200px">
-        <div style="font-size:12px;font-weight:700;color:var(--cream);margin-bottom:10px">
-          貼上欄位：<span id="paste-col-label" style="color:var(--sage2)"></span>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <label style="font-size:12px;color:rgba(240,235,225,.6);white-space:nowrap">從第</label>
-          <input type="number" id="paste-start-row" min="1" value="1"
-            style="width:72px;padding:6px 10px;border-radius:8px;border:1.5px solid rgba(240,235,225,.2);background:rgba(255,255,255,.1);color:var(--cream);font-size:14px;font-weight:700;text-align:center;outline:none;font-family:inherit"
-            onfocus="this.style.borderColor='var(--sage)'"
-            onblur="this.style.borderColor='rgba(240,235,225,.2)'">
-          <label style="font-size:12px;color:rgba(240,235,225,.6);white-space:nowrap">筆開始貼入</label>
-          <span id="paste-start-hint" style="font-size:11px;color:rgba(240,235,225,.35);margin-left:4px"></span>
-        </div>
-        <textarea id="paste-input"
-          placeholder="從 Excel 複製一欄後在此貼上（Ctrl+V / ⌘V）&#10;每行對應一筆病例，由上往下依序填入"
-          style="width:100%;min-height:80px;padding:9px 12px;border-radius:9px;border:1.5px solid rgba(240,235,225,.2);background:rgba(255,255,255,.08);color:var(--cream);font-size:13px;line-height:1.6;font-family:inherit;outline:none;resize:vertical"
-          onfocus="this.style.borderColor='var(--sage)'"
-          onblur="this.style.borderColor='rgba(240,235,225,.2)'"
-          oninput="updatePasteHint()"
-          ></textarea>
-        <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:5px" id="paste-row-hint">
-          目前共 <span id="paste-case-count" style="color:rgba(240,235,225,.7);font-weight:700">${cases.length}</span> 筆病例 · 超出現有數量的行會自動新增病例
-        </div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;padding-top:38px">
-        <button onclick="executePasteCol('${p.id}')" class="btn btn-success" style="white-space:nowrap">✅ 確認貼入</button>
-        <button onclick="closePasteToolbar()" class="btn btn-ghost btn-sm" style="justify-content:center">取消</button>
-      </div>
-    </div>
-
     <div class="twrap" style="overflow-x:auto">
       <table id="summary-table" style="min-width:100%">
         <thead><tr>
           <th style="width:52px">#</th>
           ${fields.map(f=>`
-            <th style="min-width:110px;cursor:pointer;user-select:none;white-space:nowrap" data-fid="${f.id}" data-flabel="${escH(f.label)}"
-              title="點擊選取此欄，可從 Excel 貼上整欄資料"
-              onclick="selectPasteCol(this,'${f.id}','${escH(f.label)}')"
+            <th style="min-width:110px;cursor:pointer;user-select:none;white-space:nowrap" data-fid="${f.id}"
+              title="點擊可從 Excel 貼上整欄資料"
+              onclick="openPasteModal('${f.id}','${escH(f.label)}','${p.id}')"
               onmouseenter="this.style.background='var(--sage-light)';this.style.color='var(--sage)'"
-              onmouseleave="if(!this.classList.contains('col-selected'))this.style.background='';this.style.color=''">
+              onmouseleave="this.style.background='';this.style.color=''">
               ${escH(f.label)}
-              <span style="font-size:9px;opacity:.45;margin-left:4px;font-weight:400">貼上</span>
+              <span style="font-size:9px;opacity:.4;margin-left:3px">▼貼</span>
             </th>`).join('')}
         </tr></thead>
         <tbody>
@@ -733,7 +700,7 @@ function buildTable(cases,fields,p){
         </tbody>
       </table>
     </div>
-    <div style="font-size:12px;color:var(--muted);margin-top:8px">共 ${cases.length} 筆病例 · 點欄位標題可貼上整欄 · 點儲存格可單格修改</div>`;
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">共 ${cases.length} 筆病例 · 點欄位標題貼入整欄 · 點儲存格單格修改</div>`;
 }
 
 function switchTab(t){
@@ -2583,77 +2550,98 @@ async function importCSV(input, pid){
 
 // ── 整欄貼上（從 Excel）────────────────────────────────────────────────────
 let pasteColFid = null;
+let pastePid = null;
 
-function selectPasteCol(th, fid, label){
-  document.querySelectorAll('#summary-table th.col-selected').forEach(el=>{
-    el.classList.remove('col-selected');
-    el.style.background=''; el.style.color='';
-  });
-  pasteColFid = fid;
-  th.classList.add('col-selected');
-  th.style.background='var(--sage)'; th.style.color='#fff';
-  const tb=document.getElementById('paste-toolbar');
-  if(tb){
-    tb.style.display='flex';
-    document.getElementById('paste-col-label').textContent=label;
-    document.getElementById('paste-input').value='';
-    document.getElementById('paste-start-row').value='1';
-    document.getElementById('paste-start-hint').textContent='';
-    tb.scrollIntoView({behavior:'smooth',block:'nearest'});
-    document.getElementById('paste-input').focus();
+function openPasteModal(fid, label, pid){
+  pasteColFid=fid; pastePid=pid;
+  document.getElementById('paste-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="paste-modal" onclick="if(event.target.id==='paste-modal')closePasteModal()">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-hd" style="background:var(--ink);border-radius:19px 19px 0 0">
+          <div>
+            <div class="modal-title" style="color:var(--cream)">📋 貼上整欄資料</div>
+            <div style="font-size:12px;color:rgba(240,235,225,.45);margin-top:3px">欄位：<span style="color:var(--sage2);font-weight:700">${escH(label)}</span></div>
+          </div>
+          <button class="btn-icon" onclick="closePasteModal()" style="color:rgba(240,235,225,.7);border-color:rgba(240,235,225,.2)">✕</button>
+        </div>
+        <div class="modal-bd">
+
+          <!-- 從第幾筆 -->
+          <div class="fg">
+            <label class="flabel">從第幾筆開始貼入</label>
+            <div style="display:flex;align-items:center;gap:10px">
+              <input type="number" id="pm-start-row" min="1" value="1" class="finput"
+                style="width:90px;text-align:center;font-size:16px;font-weight:700"
+                oninput="updatePasteModalHint()">
+              <span style="font-size:14px;color:var(--muted)">筆開始</span>
+              <span id="pm-hint" style="font-size:13px;color:var(--sage);font-weight:600"></span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:5px">例如：已有 5 筆，從第 6 筆開始 → 輸入 6</div>
+          </div>
+
+          <!-- 貼上區 -->
+          <div class="fg" style="margin-bottom:0">
+            <label class="flabel">貼上資料（⌘V）</label>
+            <textarea id="pm-input" class="ftextarea"
+              style="min-height:120px;font-size:14px"
+              placeholder="從 Excel 複製一欄後在此貼上&#10;每一行對應一筆病例"
+              oninput="updatePasteModalHint()"></textarea>
+          </div>
+
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closePasteModal()">取消</button>
+          <button class="btn btn-primary" onclick="executePasteModal()">✅ 確認貼入</button>
+        </div>
+      </div>
+    </div>`);
+  setTimeout(()=>document.getElementById('pm-input')?.focus(), 80);
+}
+
+function closePasteModal(){
+  document.getElementById('paste-modal')?.remove();
+  pasteColFid=null; pastePid=null;
+}
+
+function updatePasteModalHint(){
+  const raw=document.getElementById('pm-input')?.value||'';
+  const rows=raw.split(/\r?\n/).map(r=>r.replace(/\t.*$/,'').trim()).filter(r=>r!=='');
+  const start=parseInt(document.getElementById('pm-start-row')?.value||'1')||1;
+  const hint=document.getElementById('pm-hint');
+  if(!hint) return;
+  if(rows.length>0){
+    hint.textContent=`共 ${rows.length} 行 → 第 ${start} 至 ${start+rows.length-1} 筆`;
+  } else {
+    hint.textContent='';
   }
 }
 
-function updatePasteHint(){
-  const raw=document.getElementById('paste-input').value;
+async function executePasteModal(){
+  if(!pasteColFid||!pastePid){closePasteModal();return;}
+  const raw=document.getElementById('pm-input')?.value||'';
   const rows=raw.split(/\r?\n/).map(r=>r.replace(/\t.*$/,'').trim()).filter(r=>r!=='');
-  const start=parseInt(document.getElementById('paste-start-row')?.value||'1')||1;
-  const hint=document.getElementById('paste-start-hint');
-  if(hint && rows.length>0){
-    hint.textContent=`共 ${rows.length} 行 → 填入第 ${start} 至 ${start+rows.length-1} 筆`;
-  }
-}
+  if(!rows.length){toast('請先貼上資料');return;}
 
-function closePasteToolbar(){
-  pasteColFid=null;
-  const tb=document.getElementById('paste-toolbar');
-  if(tb) tb.style.display='none';
-  document.querySelectorAll('#summary-table th.col-selected').forEach(el=>{
-    el.classList.remove('col-selected');
-    el.style.background=''; el.style.color='';
-  });
-  if(document.getElementById('paste-input'))
-    document.getElementById('paste-input').value='';
-}
+  const startRow=Math.max(1,parseInt(document.getElementById('pm-start-row')?.value||'1')||1);
+  const startIdx=startRow-1;
 
-async function executePasteCol(pid){
-  if(!pasteColFid){ toast('請先點選欄位標題'); return; }
-  const raw=document.getElementById('paste-input').value;
-  const rows=raw.split(/\r?\n/).map(r=>r.replace(/\t.*$/,'').trim()).filter(r=>r!=='');
-  if(!rows.length){ toast('請先貼上資料'); return; }
-
-  // 從第幾筆開始（1-based → 0-based index）
-  const startRow = Math.max(1, parseInt(document.getElementById('paste-start-row')?.value||'1')||1);
-  const startIdx = startRow - 1;
-
-  const p=await dbGet('projects',pid);
-  const existCases=await dbIdx('cases','pid',pid);
+  const p=await dbGet('projects',pastePid);
+  const existCases=await dbIdx('cases','pid',pastePid);
 
   let updated=0, created=0;
   for(let i=0;i<rows.length;i++){
     const val=rows[i];
     const targetIdx=startIdx+i;
     if(targetIdx<existCases.length){
-      // 更新現有病例，不動其他欄位
       const c=existCases[targetIdx];
       c.data[pasteColFid]=val;
       c.updatedAt=Date.now();
       await dbPut('cases',c);
       updated++;
     } else {
-      // 超出現有數量 → 自動新增
       const newC={
-        id:uid(), projectId:pid,
+        id:uid(), projectId:pastePid,
         caseNum:String(existCases.length+created+1).padStart(3,'0'),
         data:{[pasteColFid]:val},
         createdAt:Date.now()
@@ -2664,13 +2652,17 @@ async function executePasteCol(pid){
     }
   }
 
-  closePasteToolbar();
+  closePasteModal();
   toast(`✅ 從第 ${startRow} 筆起，已更新 ${updated} 筆${created?`、新增 ${created} 筆`:''}`);
-
-  const newCases=await dbIdx('cases','pid',pid);
+  const newCases=await dbIdx('cases','pid',pastePid);
   const orderedFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
   document.getElementById('tc-table').innerHTML=buildTable(newCases,orderedFields,p);
 }
+
+// 舊函數相容（保留不報錯）
+function selectPasteCol(){}
+function closePasteToolbar(){}
+function updatePasteHint(){}
 
 async function exportCSV(pid){
   const p=await dbGet('projects',pid);

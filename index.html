@@ -1371,6 +1371,13 @@ async function vCase(){
               <span style="font-size:11px;opacity:.55;font-weight:500">${sec.fields.length} 個欄位</span>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
+              ${sec.fields.some(f=>f.derivedRule&&f.derivedRule.trim())?`
+                <button onclick="event.stopPropagation();showSectionDerive('${escH(name)}')"
+                  style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid #BFD8F4;background:#EEF7FF;color:#1d6fa4;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+                  onmouseenter="this.style.background='#D8E8F7'" onmouseleave="this.style.background='#EEF7FF'">
+                  ✨ AI 推導
+                </button>
+              `:''}
               <button onclick="event.stopPropagation();showSectionAIScan('${escH(name)}')"
                 style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid ${sec.color}40;background:${sec.color}10;color:${sec.color};font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
                 onmouseenter="this.style.background='${sec.color}22'" onmouseleave="this.style.background='${sec.color}10'">
@@ -1645,6 +1652,221 @@ function switchSecSrc(src){
     }
     if(statusEl) statusEl.style.display=selected>0?'flex':'none';
   }
+}
+
+// ── AI 推導衍生欄位 ────────────────────────────────────────────────────
+let deriveResultData={};   // {fid: value}
+let deriveTargetFields=[]; // 此次推導的目標欄位
+
+async function showSectionDerive(sectionName){
+  const apiKey=getGeminiKey();
+  if(!apiKey){toast('請先設定 Gemini API Key（在 AI 掃描病歷視窗中）');showAIScan();return;}
+  const p=await dbGet('projects',PID);
+  const allFields=p.fields||DEFAULT_FIELDS;
+  // 衍生目標欄位
+  deriveTargetFields=allFields.filter(f=>f.section===sectionName&&f.derivedRule&&f.derivedRule.trim());
+  if(!deriveTargetFields.length){toast('此區無 AI 衍生欄位');return;}
+  // 來源資料：所有「非此次衍生目標」的已填欄位
+  const sourceFields=allFields.filter(f=>!deriveTargetFields.find(t=>t.id===f.id));
+  const sourceData=sourceFields
+    .map(f=>{
+      const v=formData[f.id];
+      if(v===undefined||v===null||v==='') return null;
+      const showVal=f.type==='multiselect'?String(v).replace(/\|/g,'、'):v;
+      return `- [${f.section}] ${f.label}: ${showVal}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  if(!sourceData){
+    toast('其他欄位都還沒填，AI 無法推導');
+    return;
+  }
+
+  const targetSpec=deriveTargetFields.map(f=>{
+    let s=`【${f.label}】（類型：${f.type}`;
+    if(f.options) s+=`，可選值：${f.options}`;
+    s+='）\n推導規則：'+f.derivedRule;
+    return s;
+  }).join('\n\n');
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="derive-modal" onclick="if(event.target.id==='derive-modal')closeDerive()">
+      <div class="modal" style="max-width:600px;max-height:90vh;display:flex;flex-direction:column">
+        <div style="background:linear-gradient(135deg,#1d6fa4,#4E8A9C);padding:20px 24px 16px;border-radius:19px 19px 0 0;color:#fff;position:relative">
+          <div style="font-size:15px;font-weight:800;margin-bottom:4px">✨ AI 推導衍生欄位</div>
+          <div style="font-size:12px;opacity:.7">分區：${escH(sectionName)} · 將推導 ${deriveTargetFields.length} 個欄位</div>
+          <button onclick="closeDerive()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.85);border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
+        </div>
+        <div class="modal-bd" style="overflow-y:auto;flex:1">
+
+          <div style="background:#EEF7FF;border:1px solid #BFD8F4;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#1d6fa4;line-height:1.7">
+            🧠 AI 將根據目前已填寫的欄位內容，按照您在欄位設定中定義的「推導規則」自動填入此區的衍生欄位。<br>
+            <strong>結果會逐一列出讓您確認</strong>，不會自動覆蓋。
+          </div>
+
+          <div id="derive-status" style="padding:13px 16px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;margin-bottom:14px">
+            <span id="derive-status-icon">🟡</span>
+            <span id="derive-status-msg">準備就緒，按下「開始推導」</span>
+          </div>
+
+          <div id="derive-result-wrap" style="display:none">
+            <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px">📋 AI 推導結果（請確認後套用）</div>
+            <div id="derive-result-list" style="background:var(--card);border-radius:10px;border:1px solid var(--border2);overflow:hidden;max-height:380px;overflow-y:auto"></div>
+          </div>
+
+          <details style="margin-top:14px">
+            <summary style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;padding:6px 0">查看送給 AI 的資料（除錯用）</summary>
+            <div style="background:var(--cream);border-radius:8px;padding:10px 12px;margin-top:6px;font-size:11px;line-height:1.6;color:var(--muted);white-space:pre-wrap;font-family:'DM Mono',monospace;max-height:200px;overflow-y:auto">${escH(sourceData)}\n\n推導目標：\n${escH(targetSpec)}</div>
+          </details>
+
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeDerive()">取消</button>
+          <button id="derive-run-btn" class="btn btn-primary" onclick="runDerive()">🤖 開始推導</button>
+          <button id="derive-apply-btn" class="btn btn-success" onclick="applyDerive()" style="display:none">✅ 套用</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function closeDerive(){
+  document.getElementById('derive-modal')?.remove();
+  deriveResultData={};
+  deriveTargetFields=[];
+}
+
+function setDeriveStatus(state,msg){
+  const icons={ready:'🟡',loading:'⏳',done:'✅',error:'❌'};
+  const el=document.getElementById('derive-status');
+  if(!el) return;
+  document.getElementById('derive-status-icon').textContent=icons[state]||'⏳';
+  document.getElementById('derive-status-msg').textContent=msg;
+  el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
+}
+
+async function runDerive(){
+  const apiKey=getGeminiKey();
+  if(!apiKey){toast('請先設定 Gemini API Key');return;}
+
+  const p=await dbGet('projects',PID);
+  const allFields=p.fields||DEFAULT_FIELDS;
+  const sourceFields=allFields.filter(f=>!deriveTargetFields.find(t=>t.id===f.id));
+  const sourceData=sourceFields
+    .map(f=>{
+      const v=formData[f.id];
+      if(v===undefined||v===null||v==='') return null;
+      const showVal=f.type==='multiselect'?String(v).replace(/\|/g,'、'):v;
+      return `- [${f.section}] ${f.label}: ${showVal}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  const targetSpec=deriveTargetFields.map(f=>{
+    let s=`【${f.label}】類型=${f.type}`;
+    if(f.options) s+=`；可選值=「${f.options}」（select/multiselect 必須完全相符）`;
+    s+='\n推導規則：'+f.derivedRule;
+    return s;
+  }).join('\n\n');
+
+  const prompt=`你是醫療研究分析助理。以下是一筆病例已填寫的欄位內容：
+
+${sourceData}
+
+請根據上述資料，依下列每個欄位的「推導規則」，做出對應的判定：
+
+${targetSpec}
+
+請以 JSON 格式回覆，key 為欄位名稱（用上面【】中的字），value 為判定結果。
+規則：
+- select 類型：必須回覆「可選值」中完全相符的其中一個
+- multiselect 類型：多個值用 | 分隔（例：A|B|C）
+- 若資料不足無法判定，回覆字串 "無法推導" 並不要包含此 key
+- 只回覆 JSON，不要說明文字、不要 markdown`;
+
+  const btn=document.getElementById('derive-run-btn');
+  btn.disabled=true; btn.textContent='⏳ 推導中…';
+  setDeriveStatus('loading','Gemini 正在分析欄位內容並推導…');
+
+  try{
+    const resp=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})}
+    );
+    if(!resp.ok){const err=await resp.json();throw new Error(err.error?.message||`HTTP ${resp.status}`);}
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+
+    deriveResultData={};
+    const items=[];
+    for(const f of deriveTargetFields){
+      let val=parsed[f.label];
+      if(val===undefined||val===null||val===''||val==='無法推導') continue;
+      val=String(val);
+      deriveResultData[f.id]=val;
+      const cur=formData[f.id]||'';
+      items.push({field:f, value:val, currentVal:cur});
+    }
+
+    if(!items.length){
+      setDeriveStatus('error','AI 表示資料不足無法推導，請補齊前面的欄位');
+      btn.disabled=false; btn.textContent='🔄 重新推導';
+      return;
+    }
+
+    document.getElementById('derive-result-list').innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位（會覆蓋現有值）</span>
+        <div style="display:flex;gap:10px">
+          <button onclick="toggleAllDerive(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
+          <button onclick="toggleAllDerive(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
+        </div>
+      </div>
+      ${items.map(({field,value,currentVal})=>{
+        const willOverwrite=currentVal&&currentVal!==value;
+        return `
+        <label style="display:flex;align-items:flex-start;gap:11px;padding:12px 14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s"
+          onmouseenter="this.style.background='#F0F8FF'" onmouseleave="this.style.background=''">
+          <input type="checkbox" class="derive-cb" data-fid="${field.id}" ${willOverwrite?'':'checked'}
+            style="width:16px;height:16px;margin-top:3px;flex-shrink:0;accent-color:#1d6fa4;cursor:pointer">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:5px">${escH(field.label)}</div>
+            ${currentVal?`<div style="font-size:12px;color:var(--muted);margin-bottom:3px;text-decoration:line-through">原值：${escH(currentVal.replace(/\|/g,'、'))}</div>`:''}
+            <div style="font-size:14px;color:#1d6fa4;font-weight:700">→ ${escH(value.replace(/\|/g,'、'))}</div>
+            ${willOverwrite?`<div style="font-size:11px;color:var(--red);margin-top:4px;font-weight:600">⚠️ 將覆蓋原有資料（預設不勾選，請確認後再打勾）</div>`:''}
+          </div>
+        </label>`;
+      }).join('')}`;
+    document.getElementById('derive-result-wrap').style.display='';
+    document.getElementById('derive-apply-btn').style.display='inline-flex';
+    setDeriveStatus('done',`推導完成！得到 ${items.length} 個結果`);
+
+  } catch(err){
+    setDeriveStatus('error','推導失敗：'+err.message);
+  }
+  btn.disabled=false; btn.textContent='🔄 重新推導';
+}
+
+function toggleAllDerive(checked){
+  document.querySelectorAll('.derive-cb').forEach(cb=>cb.checked=checked);
+}
+
+function applyDerive(){
+  const checks=document.querySelectorAll('.derive-cb:checked');
+  if(!checks.length){toast('請至少勾選一個欄位');return;}
+  let count=0;
+  checks.forEach(cb=>{
+    const fid=cb.dataset.fid;
+    const val=deriveResultData[fid];
+    if(val===undefined) return;
+    applyFieldValue(fid,val);
+    count++;
+  });
+  dirty=true;
+  document.getElementById('savebar').classList.add('on');
+  closeDerive();
+  toast(`✅ 已套用 ${count} 個推導結果`);
 }
 
 // ── 分區 AI 掃描 Modal ────────────────────────────────────────────────────
@@ -2749,6 +2971,7 @@ function fiHTML(f){
       </div>
       ${f.options?`<div style="font-size:12px;color:var(--muted);margin-top:3px">選項：${escH(f.options)}</div>`:''}
       ${f.defaultValue?`<div style="font-size:12px;color:var(--gold);margin-top:3px">💡 預設值：${escH(f.defaultValue.replace(/\|/g,'、'))}</div>`:''}
+      ${f.derivedRule?`<div style="font-size:12px;color:#1d6fa4;margin-top:3px">🧠 AI 衍生：${escH(f.derivedRule.length>50?f.derivedRule.slice(0,50)+'…':f.derivedRule)}</div>`:''}
     </div>
     <div style="display:flex;gap:6px;flex-shrink:0">
       <button class="btn btn-outline btn-sm" onclick="editFieldInline('${f.id}')" style="font-size:12px;padding:5px 12px">編輯</button>
@@ -2857,6 +3080,16 @@ function editFieldInline(fid){
             </div>
           </div>
 
+          <div class="fg" style="background:#EEF7FF;border:1px solid #BFD8F4;border-radius:10px;padding:12px 14px">
+            <label class="flabel" style="margin-bottom:6px;color:#1d6fa4">🧠 AI 衍生欄位（根據其他欄位自動推導）</label>
+            <textarea class="ftextarea" id="ef-derived" placeholder="例：根據「FIGO 分期」「組織型態」「分子分型」綜合判定是否符合保留子宮的低風險條件&#10;&#10;留空 = 一般欄位，需手動填寫" style="background:#fff;min-height:80px">${escH(f.derivedRule||'')}</textarea>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6">
+              ✅ 設定後，此欄位會標示為「AI 衍生」<br>
+              ✅ 在病例頁可用「<strong>✨ AI 推導</strong>」按鈕，AI 會根據其他已填欄位 + 此處的推導規則自動填入<br>
+              ✅ 推導結果可逐一勾選確認，避免錯誤覆蓋
+            </div>
+          </div>
+
           <div class="fg" style="margin-bottom:0">
             <label class="flabel">分區顏色</label>
             <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
@@ -2903,11 +3136,13 @@ function saveFieldEdit(fid){
   const newType=document.querySelector('#ef-tchips .tchip.sel')?.dataset.t||f.type;
   const newOpts=document.getElementById('ef-options')?.value.trim()||'';
   const newDefault=document.getElementById('ef-defaultval')?.value.trim()||'';
+  const newDerived=document.getElementById('ef-derived')?.value.trim()||'';
   if(!newLabel){alert('請輸入欄位名稱');return;}
   f.label=newLabel; f.section=newSec; f.sectionColor=newColor;
   f.type=newType;
   f.options = ['select','multiselect'].includes(newType) ? newOpts : '';
   f.defaultValue = newDefault;
+  f.derivedRule = newDerived;
   editFields.forEach(x=>{if(x.section===newSec) x.sectionColor=newColor;});
   closeEF();
   document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();

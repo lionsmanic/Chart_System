@@ -500,12 +500,12 @@ const dbDel=(s,k)=>new Promise((r,e)=>{const q=tx(s,'readwrite').delete(k);q.ons
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 // ── State ──────────────────────────────────────────────────────────────────
-let VIEW='projects', PID=null, CID=null;
+let VIEW='projects', PID=null, CID=null, GID=null;
 let formData={}, formOrig={}, dirty=false;
 let editFields=[];
-let selectMode=false;       // 是否在多選模式
-let selectedPids=new Set(); // 已選的 project ids
-let selectedTids=new Set(); // 已選的 topic ids
+let selectMode=false;
+let selectedPids=new Set();
+let selectedTids=new Set();
 
 // ── Section colors ─────────────────────────────────────────────────────────
 const COLORS=['#1d6fa4','#0d9488','#7c3aed','#be185d','#b45309','#1e40af','#0f766e','#6d28d9'];
@@ -540,7 +540,8 @@ function toast(msg,dur=2200){
 }
 
 // ── Nav ────────────────────────────────────────────────────────────────────
-function goHome(){if(dirty&&!confirm('有未儲存的變更，確定離開？'))return;dirty=false;VIEW='projects';PID=null;CID=null;render();}
+function goHome(){if(dirty&&!confirm('有未儲存的變更，確定離開？'))return;dirty=false;VIEW='projects';PID=null;CID=null;GID=null;render();}
+function goGroup(gid){if(dirty&&!confirm('有未儲存的變更，確定離開？'))return;dirty=false;VIEW='group';GID=gid;PID=null;CID=null;render();}
 function goProject(pid){if(dirty&&!confirm('有未儲存的變更，確定離開？'))return;dirty=false;PID=pid;VIEW='project';CID=null;render();}
 function goCase(cid,pid){PID=pid;CID=cid;VIEW='case';render();}
 
@@ -548,19 +549,18 @@ function goCase(cid,pid){PID=pid;CID=cid;VIEW='case';render();}
 async function render(){
   document.getElementById('savebar').classList.toggle('on',dirty);
   if(VIEW==='projects') await vProjects();
+  else if(VIEW==='group') await vGroup();
   else if(VIEW==='project') await vProject();
   else if(VIEW==='case') await vCase();
   else if(VIEW==='settings') await vSettings();
 }
 
-// ── Projects ───────────────────────────────────────────────────────────────
+// ── Projects Home ──────────────────────────────────────────────────────────
 async function vProjects(){
   const projs=await dbAll('projects');
-  const topics=await dbAll('topics');
-  // 確保新建的 topic 在最上方（依 createdAt 排序）
-  topics.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  const groups=await dbAll('topics');
+  groups.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
 
-  // 病例數預先抓
   const caseCounts={};
   for(const p of projs){
     const cs=await dbIdx('cases','pid',p.id);
@@ -575,27 +575,25 @@ async function vProjects(){
     <button class="btn btn-ghost" onclick="enterSelectMode()" title="選取多個項目">☑ 選取</button>
     <button class="btn btn-ghost" onclick="showSyncModal()">🔄 匯出／匯入</button>
     <button class="btn btn-ghost" onclick="exportAll()">📤 全部匯出CSV</button>
-    <button class="btn btn-ghost" onclick="showTopicModal(null)">🗂️ 新增主題</button>
+    <button class="btn btn-ghost" onclick="showTopicModal(null)">📁 新增群組</button>
     <button class="btn btn-primary" onclick="showProjModal(null)">＋ 新增 Project</button>
   `;
   document.getElementById('hactions').innerHTML=selectBar;
 
-  // 將 projects 依 topicId 分組
-  const projsByTopic={};
-  const orphanProjs=[];
-  projs.forEach(p=>{
-    if(p.topicId && topics.find(t=>t.id===p.topicId)){
-      (projsByTopic[p.topicId]??=[]).push(p);
-    } else {
-      orphanProjs.push(p);
-    }
-  });
+  // 計算每個群組的 project 數
+  const groupCount={};
+  projs.forEach(p=>{ if(p.topicId) groupCount[p.topicId]=(groupCount[p.topicId]||0)+1; });
 
-  const renderProjCard = (p)=>{
+  // 未歸群的 project
+  const orphanProjs=projs.filter(p=>!p.topicId||!groups.find(g=>g.id===p.topicId));
+
+  const renderProjCard = (p, draggable=true)=>{
     const isSel=selectedPids.has(p.id);
     return `
-      <div class="project-card" onclick="${selectMode?`toggleSelectProj('${p.id}')`:`goProject('${p.id}')`}"
-        style="${isSel?'box-shadow:0 0 0 3px var(--sage),0 8px 30px rgba(62,114,101,.18);border-color:var(--sage)':''}">
+      <div class="project-card" 
+        ${draggable&&!selectMode?`draggable="true" ondragstart="onProjDragStart(event,'${p.id}')" ondragend="onProjDragEnd(event)"`:''}
+        onclick="${selectMode?`toggleSelectProj('${p.id}')`:`goProject('${p.id}')`}"
+        style="${isSel?'box-shadow:0 0 0 3px var(--sage),0 8px 30px rgba(62,114,101,.18);border-color:var(--sage)':''};${draggable&&!selectMode?'cursor:grab':''}">
         ${selectMode?`<div style="position:absolute;top:14px;left:14px;width:22px;height:22px;border-radius:50%;border:2.5px solid ${isSel?'var(--sage)':'var(--border)'};background:${isSel?'var(--sage)':'#fff'};display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;font-weight:700">${isSel?'✓':''}</div>`:`
         <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
           <button class="btn-icon" onclick="event.stopPropagation();duplicateProject('${p.id}')" title="複製此 Project 結構">📋</button>
@@ -611,41 +609,224 @@ async function vProjects(){
       </div>`;
   };
 
+  const renderGroupCard = (g)=>{
+    const count=groupCount[g.id]||0;
+    const isSel=selectedTids.has(g.id);
+    return `
+      <div class="group-card"
+        onclick="${selectMode?`toggleSelectTopic('${g.id}')`:`goGroup('${g.id}')`}"
+        ondragover="event.preventDefault();this.style.boxShadow='0 0 0 3px ${g.color},0 8px 30px ${g.color}40';this.style.transform='translateY(-2px)'"
+        ondragleave="this.style.boxShadow='';this.style.transform=''"
+        ondrop="event.preventDefault();this.style.boxShadow='';this.style.transform='';onProjDropOnGroup(event,'${g.id}')"
+        style="position:relative;background:linear-gradient(135deg,${g.color}10,${g.color}03);border:1.5px solid ${g.color}30;border-radius:16px;padding:24px 22px;cursor:pointer;transition:all .22s;overflow:hidden;${isSel?'box-shadow:0 0 0 3px var(--sage)':'box-shadow:var(--shadow-card)'}"
+        onmouseenter="if(!this.style.boxShadow.includes('--sage'))this.style.boxShadow='0 8px 28px ${g.color}30,0 0 0 1.5px ${g.color}50';this.style.transform='translateY(-3px)'"
+        onmouseleave="if(!this.style.boxShadow.includes('--sage')){this.style.boxShadow='var(--shadow-card)';}this.style.transform=''">
+        ${selectMode?`<div style="position:absolute;top:14px;left:14px;width:22px;height:22px;border-radius:50%;border:2.5px solid ${isSel?'var(--sage)':'var(--border)'};background:${isSel?'var(--sage)':'#fff'};display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;font-weight:700">${isSel?'✓':''}</div>`:`
+        <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+          <button class="btn-icon" onclick="event.stopPropagation();showTopicModal('${g.id}')" title="編輯群組">✏️</button>
+          <button class="btn-icon" onclick="event.stopPropagation();delTopic('${g.id}')" title="解散群組">🗑️</button>
+        </div>`}
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;${selectMode?'padding-left:30px':''}">
+          <div style="font-size:38px;line-height:1">📁</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-family:'Cormorant Garamond',serif;font-size:23px;font-weight:600;color:${g.color};letter-spacing:-.2px;line-height:1.2">${escH(g.name)}</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:2px">${count} 個 Project</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,.5);border-radius:8px;font-size:11px;color:var(--muted);text-align:center;font-style:italic">${selectMode?'點擊勾選':'點擊進入 · 拖曳 Project 到此加入群組'}</div>
+      </div>`;
+  };
+
   const app=document.getElementById('app');
   app.innerHTML=`
     <div class="page-title">所有 Projects</div>
-    <div class="page-sub">${selectMode?'<span style="color:var(--sage);font-weight:700">選取模式</span> · 點擊任一項目進行勾選':'每個 Project 獨立管理病例 · 可建立「主題」分類整理'}</div>
+    <div class="page-sub">${selectMode?'<span style="color:var(--sage);font-weight:700">選取模式</span> · 點擊任一項目進行勾選':'拖曳 Project 卡到「群組」可分類整理 · 點群組進入查看內容'}</div>
 
-    ${topics.map(topic=>{
-      const tProjs=projsByTopic[topic.id]||[];
-      const isTopicSel=selectedTids.has(topic.id);
-      return `
-      <div style="margin-bottom:32px">
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;background:${topic.color}14;border-left:4px solid ${topic.color};border-radius:8px;margin-bottom:14px;${isTopicSel?'box-shadow:0 0 0 2px var(--sage)':''}"
-          onclick="${selectMode?`toggleSelectTopic('${topic.id}')`:''}"
-          ${selectMode?'style="cursor:pointer;"':''}>
-          ${selectMode?`<div style="width:20px;height:20px;border-radius:50%;border:2.5px solid ${isTopicSel?'var(--sage)':'var(--border)'};background:${isTopicSel?'var(--sage)':'#fff'};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700;flex-shrink:0">${isTopicSel?'✓':''}</div>`:''}
-          <div style="width:10px;height:10px;border-radius:50%;background:${topic.color};flex-shrink:0"></div>
-          <span style="font-size:15px;font-weight:700;color:${topic.color};flex:1">${escH(topic.name)}</span>
-          <span style="font-size:12px;color:var(--muted);font-weight:600">${tProjs.length} 個 Project</span>
-          ${!selectMode?`
-          <button class="btn-icon" onclick="event.stopPropagation();showTopicModal('${topic.id}')" title="編輯主題" style="margin-left:6px">✏️</button>
-          <button class="btn-icon" onclick="event.stopPropagation();delTopic('${topic.id}')" title="刪除主題（不刪 Project）">🗑️</button>`:''}
-        </div>
-        ${tProjs.length?`<div class="project-grid">${tProjs.map(renderProjCard).join('')}</div>`:`
-        <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;background:var(--card);border:1.5px dashed var(--border);border-radius:14px">尚無 Project，點下方「＋ 新增 Project」並指定此主題</div>`}
-      </div>`;
-    }).join('')}
+    ${groups.length?`
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px">📁 群組</div>
+      <div class="project-grid" style="margin-bottom:36px">
+        ${groups.map(renderGroupCard).join('')}
+      </div>`:''}
 
-    ${topics.length?`<div style="margin-bottom:14px;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">未分類</div>`:''}
+    ${groups.length?`<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px">📋 ${orphanProjs.length?'未分類 Projects':'尚無未分類 Project'}</div>`:''}
     <div class="project-grid">
-      ${orphanProjs.map(renderProjCard).join('')}
+      ${orphanProjs.map(p=>renderProjCard(p,true)).join('')}
       ${!selectMode?`
       <div class="project-new" onclick="showProjModal(null)">
         <div class="project-new-icon">＋</div>
         <div style="font-size:14px;font-weight:600">建立新 Project</div>
       </div>`:''}
     </div>`;
+}
+
+// ── Group View ─────────────────────────────────────────────────────────────
+async function vGroup(){
+  const g=await dbGet('topics',GID);
+  if(!g){goHome();return;}
+  const allProjs=await dbAll('projects');
+  const inGroup=allProjs.filter(p=>p.topicId===GID);
+  const outsideProjs=allProjs.filter(p=>p.topicId!==GID);
+
+  const caseCounts={};
+  for(const p of allProjs){
+    const cs=await dbIdx('cases','pid',p.id);
+    caseCounts[p.id]=cs.length;
+  }
+
+  document.getElementById('hbreadcrumb').textContent='/ '+g.name;
+  document.getElementById('hactions').innerHTML=`
+    <button class="btn btn-ghost" onclick="goHome()">← 返回首頁</button>
+    <button class="btn btn-ghost" onclick="showAddToGroup('${GID}')" title="從未分類 / 其他群組加入既有 Project">＋ 加入既有 Project</button>
+    <button class="btn btn-primary" onclick="newProjInGroup('${GID}')">＋ 新增 Project（直接加入此群組）</button>
+  `;
+
+  const renderProjCard = (p)=>`
+    <div class="project-card"
+      draggable="true" ondragstart="onProjDragStart(event,'${p.id}')" ondragend="onProjDragEnd(event)"
+      onclick="goProject('${p.id}')">
+      <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+        <button class="btn-icon" onclick="event.stopPropagation();removeFromGroup('${p.id}')" title="移出群組（不刪除 Project）">🚪</button>
+        <button class="btn-icon" onclick="event.stopPropagation();duplicateProject('${p.id}')" title="複製">📋</button>
+        <button class="btn-icon" onclick="event.stopPropagation();showProjModal('${p.id}')" title="編輯">✏️</button>
+      </div>
+      <div class="project-card-name">${escH(p.name)}</div>
+      <div class="project-card-desc">${escH(p.description||'（無描述）')}</div>
+      <div class="project-card-meta">
+        <span class="mbadge">${caseCounts[p.id]||0} 筆病例</span>
+        <span class="mbadge" style="background:#f0fdf4;color:#16a34a">${(p.fields||DEFAULT_FIELDS).length} 欄位</span>
+      </div>
+    </div>`;
+
+  const app=document.getElementById('app');
+  app.innerHTML=`
+    <div class="bc"><a onclick="goHome()">首頁</a><span class="bc-sep">›</span><span>${escH(g.name)}</span></div>
+
+    <!-- 群組標題卡 -->
+    <div style="background:linear-gradient(135deg,${g.color},${g.color}dd);border-radius:18px;padding:30px 36px;margin-bottom:26px;color:#fff;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow-lg);position:relative;overflow:hidden">
+      <div style="position:absolute;top:-60px;right:-60px;width:240px;height:240px;border-radius:50%;background:rgba(255,255,255,.12)"></div>
+      <div style="position:relative;z-index:1">
+        <div style="font-size:11px;color:rgba(255,255,255,.7);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:6px">📁 群組</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:600;letter-spacing:-.3px">${escH(g.name)}</div>
+        <div style="font-size:14px;color:rgba(255,255,255,.7);margin-top:6px">${inGroup.length} 個 Project</div>
+      </div>
+      <div style="display:flex;gap:8px;position:relative;z-index:1">
+        <button class="btn btn-ghost" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.3)" onclick="showTopicModal('${GID}')">✏️ 編輯</button>
+      </div>
+    </div>
+
+    <!-- 拖曳放置區 -->
+    <div ondragover="event.preventDefault();this.style.background='${g.color}18';this.style.borderColor='${g.color}'"
+      ondragleave="this.style.background='';this.style.borderColor='var(--border)'"
+      ondrop="event.preventDefault();this.style.background='';this.style.borderColor='var(--border)';onProjDropOnGroup(event,'${GID}')"
+      style="border:2px dashed var(--border);border-radius:14px;padding:16px;text-align:center;color:var(--muted);font-size:13px;margin-bottom:24px;transition:all .15s">
+      💡 將其他 Project 卡片拖曳到此即可加入本群組
+    </div>
+
+    ${inGroup.length?`
+    <div class="project-grid">
+      ${inGroup.map(renderProjCard).join('')}
+    </div>`:`
+    <div class="empty">
+      <div class="empty-icon">📂</div>
+      <div class="empty-title">群組內尚無 Project</div>
+      <div style="font-size:13px;margin-top:8px">點右上角「＋ 加入既有 Project」或「新增 Project」</div>
+    </div>`}
+  `;
+}
+
+async function newProjInGroup(gid){
+  GID=gid;
+  showProjModal(null,gid);
+}
+
+async function removeFromGroup(pid){
+  const p=await dbGet('projects',pid);
+  if(!confirm(`將「${p.name}」移出此群組？\n（Project 不會被刪除，會回到「未分類」區）`)) return;
+  p.topicId='';
+  await dbPut('projects',p);
+  toast('🚪 已移出群組');
+  vGroup();
+}
+
+// ── 加入既有 Project ─────────────────────────────────────────────────────
+async function showAddToGroup(gid){
+  const g=await dbGet('topics',gid);
+  const allProjs=await dbAll('projects');
+  const candidates=allProjs.filter(p=>p.topicId!==gid);
+  if(!candidates.length){
+    toast('沒有可加入的 Project');
+    return;
+  }
+  const groups=await dbAll('topics');
+  const groupName=id=>groups.find(t=>t.id===id)?.name||'未分類';
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="addg-modal" onclick="if(event.target.id==='addg-modal')closeAddG()">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-hd">
+          <div>
+            <div class="modal-title">加入到群組</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px">勾選要加入「<span style="color:${g.color};font-weight:700">${escH(g.name)}</span>」的 Project</div>
+          </div>
+          <button class="btn-icon" onclick="closeAddG()">✕</button>
+        </div>
+        <div class="modal-bd" style="max-height:60vh;overflow-y:auto">
+          ${candidates.map(p=>`
+            <label style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:9px;border:1.5px solid var(--border);background:var(--card);margin-bottom:8px;cursor:pointer;transition:all .12s"
+              onmouseenter="this.style.borderColor='var(--sage)';this.style.background='var(--sage-light)'"
+              onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--card)'">
+              <input type="checkbox" value="${p.id}" class="addg-check" style="width:16px;height:16px;accent-color:var(--sage);cursor:pointer">
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:600;color:var(--ink)">${escH(p.name)}</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:1px">目前在：${escH(groupName(p.topicId))}</div>
+              </div>
+            </label>`).join('')}
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeAddG()">取消</button>
+          <button class="btn btn-primary" onclick="commitAddToGroup('${gid}')">✅ 加入群組</button>
+        </div>
+      </div>
+    </div>`);
+}
+function closeAddG(){document.getElementById('addg-modal')?.remove();}
+async function commitAddToGroup(gid){
+  const checks=document.querySelectorAll('.addg-check:checked');
+  if(!checks.length){toast('請至少勾選一個 Project');return;}
+  let count=0;
+  for(const cb of checks){
+    const p=await dbGet('projects',cb.value);
+    p.topicId=gid;
+    await dbPut('projects',p);
+    count++;
+  }
+  closeAddG();
+  toast(`✅ 已將 ${count} 個 Project 加入群組`);
+  vGroup();
+}
+
+// ── 拖曳 Project 到群組 ──────────────────────────────────────────────────
+let projDragId=null;
+function onProjDragStart(e, pid){
+  projDragId=pid;
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain','proj:'+pid);
+  e.target.style.opacity='.5';
+}
+function onProjDragEnd(e){
+  e.target.style.opacity='';
+  projDragId=null;
+}
+async function onProjDropOnGroup(e, gid){
+  if(!projDragId) return;
+  const p=await dbGet('projects',projDragId);
+  if(!p||p.topicId===gid){projDragId=null;return;}
+  p.topicId=gid;
+  await dbPut('projects',p);
+  const g=await dbGet('topics',gid);
+  toast(`✅ 已將「${p.name}」加入「${g.name}」`);
+  projDragId=null;
+  if(VIEW==='group') vGroup(); else vProjects();
 }
 
 function enterSelectMode(){
@@ -669,15 +850,13 @@ async function deleteSelected(){
   const total=selectedPids.size+selectedTids.size;
   if(!total){toast('請先勾選項目');return;}
   const projCount=selectedPids.size;
-  const topicCount=selectedTids.size;
-  if(!confirm(`確定刪除已選的 ${projCount} 個 Project${topicCount?` 和 ${topicCount} 個主題`:''}？\n（Project 內的所有病例也會一起刪除，主題內的 Project 會變回未分類）`)) return;
-  // 刪除 projects 及其 cases
+  const groupCount=selectedTids.size;
+  if(!confirm(`確定刪除已選的 ${projCount} 個 Project${groupCount?` 和 ${groupCount} 個群組`:''}？\n（Project 內所有病例會一併刪除；群組內的 Project 會回到未分類，不會被刪）`)) return;
   for(const pid of selectedPids){
     const cs=await dbIdx('cases','pid',pid);
     for(const c of cs) await dbDel('cases',c.id);
     await dbDel('projects',pid);
   }
-  // 刪除 topics（被選的 topic 內 project 的 topicId 清掉，但若 project 也被選了就已刪掉了）
   for(const tid of selectedTids){
     const ps=await dbAll('projects');
     for(const p of ps){
@@ -685,11 +864,10 @@ async function deleteSelected(){
     }
     await dbDel('topics',tid);
   }
-  toast(`🗑️ 已刪除 ${projCount} 個 Project${topicCount?`、${topicCount} 個主題`:''}`);
+  toast(`🗑️ 已刪除 ${projCount} 個 Project${groupCount?`、${groupCount} 個群組`:''}`);
   exitSelectMode();
 }
 
-// 複製 Project（包含欄位設定，但不複製病例）
 async function duplicateProject(pid){
   const src=await dbGet('projects',pid);
   if(!src) return;
@@ -700,11 +878,10 @@ async function duplicateProject(pid){
     name:src.name+' （副本）',
     createdAt:Date.now()
   };
-  // 重新產生欄位 ID 避免衝突
   if(newProj.fields) newProj.fields=newProj.fields.map(f=>({...f,id:uid()}));
   await dbPut('projects',newProj);
   toast(`✅ 已複製「${src.name}」`);
-  vProjects();
+  if(VIEW==='group') vGroup(); else vProjects();
 }
 
 // ── Project (list + table) ─────────────────────────────────────────────────
@@ -2426,20 +2603,20 @@ async function saveSettings(pid){
   goProject(pid);
 }
 
-// ── Topic Modal ────────────────────────────────────────────────────────────
+// ── Group Modal ────────────────────────────────────────────────────────────
 async function showTopicModal(tid){
   const t=tid?await dbGet('topics',tid):null;
   document.body.insertAdjacentHTML('beforeend',`
     <div class="overlay" id="tmodal" onclick="if(event.target.id==='tmodal')closeTopicMod()">
       <div class="modal" style="max-width:440px">
-        <div class="modal-hd"><span class="modal-title">${t?'編輯主題':'建立新主題'}</span><button class="btn-icon" onclick="closeTopicMod()">✕</button></div>
+        <div class="modal-hd"><span class="modal-title">${t?'編輯群組':'建立新群組'}</span><button class="btn-icon" onclick="closeTopicMod()">✕</button></div>
         <div class="modal-bd">
           <div class="fg">
-            <label class="flabel req">主題名稱</label>
+            <label class="flabel req">群組名稱</label>
             <input class="finput" id="tm-name" value="${escH(t?.name||'')}" placeholder="例：婦癌研究、臨床試驗、教學案例…" autofocus>
           </div>
           <div class="fg" style="margin-bottom:0">
-            <label class="flabel">主題顏色</label>
+            <label class="flabel">群組顏色</label>
             <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
               ${COLORS.map((c,i)=>`<div class="cdot tm-cdot ${(t?.color||COLORS[0])===c?'act':''}" style="background:${c}" data-c="${c}" onclick="selTopicColor(this)"></div>`).join('')}
             </div>
@@ -2460,12 +2637,12 @@ function selTopicColor(el){
 }
 async function createTopic(){
   const name=document.getElementById('tm-name').value.trim();
-  if(!name){alert('請輸入主題名稱');return;}
+  if(!name){alert('請輸入群組名稱');return;}
   const color=document.querySelector('.tm-cdot.act')?.dataset.c||COLORS[0];
   await dbPut('topics',{id:uid(),name,color,createdAt:Date.now()});
   closeTopicMod();
-  toast(`✅ 主題「${name}」已建立`);
-  vProjects();
+  toast(`✅ 群組「${name}」已建立`);
+  if(VIEW==='group') vGroup(); else vProjects();
 }
 async function saveTopicEdit(tid){
   const t=await dbGet('topics',tid);
@@ -2473,38 +2650,38 @@ async function saveTopicEdit(tid){
   t.color=document.querySelector('.tm-cdot.act')?.dataset.c||t.color;
   await dbPut('topics',t);
   closeTopicMod();
-  toast('✅ 主題已更新');
-  vProjects();
+  toast('✅ 群組已更新');
+  if(VIEW==='group') vGroup(); else vProjects();
 }
 async function delTopic(tid){
   const t=await dbGet('topics',tid);
-  if(!confirm(`確定刪除主題「${t.name}」？\n（其下的 Project 會變回「未分類」，不會被刪除）`)) return;
-  // 把這個 topic 下的 projects 的 topicId 清空
+  if(!confirm(`解散群組「${t.name}」？\n（其下的 Project 會回到「未分類」，不會被刪除）`)) return;
   const ps=await dbAll('projects');
   for(const p of ps){
     if(p.topicId===tid){p.topicId=''; await dbPut('projects',p);}
   }
   await dbDel('topics',tid);
-  toast('🗑️ 主題已刪除');
-  vProjects();
+  toast('🗑️ 群組已解散');
+  goHome();
 }
 
 // ── Project Modal ──────────────────────────────────────────────────────────
-async function showProjModal(pid){
+async function showProjModal(pid, defaultGid){
   const p=pid?await dbGet('projects',pid):null;
   const allProjs=await dbAll('projects');
   const otherProjs=allProjs.filter(x=>x.id!==pid);
-  const allTopics=await dbAll('topics');
-  allTopics.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  const allGroups=await dbAll('topics');
+  allGroups.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  const currentGid = p?.topicId || defaultGid || '';
 
-  const topicSelect = `
+  const groupSelect = `
     <div class="fg">
-      <label class="flabel">所屬主題</label>
+      <label class="flabel">所屬群組</label>
       <select class="fselect" id="mp-topic">
         <option value="">未分類</option>
-        ${allTopics.map(t=>`<option value="${t.id}" ${p?.topicId===t.id?'selected':''}>${escH(t.name)}</option>`).join('')}
+        ${allGroups.map(t=>`<option value="${t.id}" ${currentGid===t.id?'selected':''}>${escH(t.name)}</option>`).join('')}
       </select>
-      <div style="font-size:12px;color:var(--muted);margin-top:6px">將相關的 Project 歸入同一主題，方便整理</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">將相關的 Project 歸入同一群組，方便整理</div>
     </div>`;
 
   const copyFromSelect = !p && otherProjs.length ? `
@@ -2524,7 +2701,7 @@ async function showProjModal(pid){
         <div class="modal-bd">
           <div class="fg"><label class="flabel req">Project 名稱</label><input class="finput" id="mp-name" value="${escH(p?.name||'')}" placeholder="例：高血壓研究"></div>
           <div class="fg"><label class="flabel">描述</label><input class="finput" id="mp-desc" value="${escH(p?.description||'')}" placeholder="簡短說明此 Project 用途"></div>
-          ${topicSelect}
+          ${groupSelect}
           ${copyFromSelect}
         </div>
         <div class="modal-ft">
@@ -2561,7 +2738,7 @@ async function createProj(){
   await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,defaultPhotoNote,createdAt:Date.now()});
   closeMod();
   if(!copyFromId) toast('✅ Project 已建立');
-  vProjects();
+  if(VIEW==='group' && topicId===GID) vGroup(); else vProjects();
 }
 async function saveProjEdit(pid){
   const p=await dbGet('projects',pid);
@@ -2921,32 +3098,104 @@ function dlCSV(fname,hdrs,rows){
 
 // ── JSON 匯出／匯入（協作用）─────────────────────────────────────────────────
 async function showSyncModal(pid){
-  // 如果有指定 pid 就只顯示那個 project，否則顯示全部
   const allProjs = await dbAll('projects');
-  const targetProjs = pid ? allProjs.filter(p=>p.id===pid) : allProjs;
+  const allGroups = await dbAll('topics');
+  allGroups.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
 
-  // 建立選項清單
-  const projOptions = allProjs.map(p=>`
-    <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1.5px solid var(--border);background:#f8fbff;margin-bottom:6px">
-      <input type="checkbox" value="${p.id}" ${targetProjs.find(t=>t.id===p.id)?'checked':''} style="width:15px;height:15px;accent-color:var(--sky)">
-      <span style="font-size:13px;font-weight:700">${escH(p.name)}</span>
-    </label>`).join('');
+  // 計算每個 project 的病例數
+  const caseCounts={};
+  for(const p of allProjs){
+    const cs=await dbIdx('cases','pid',p.id);
+    caseCounts[p.id]=cs.length;
+  }
+
+  // 預設選取邏輯：
+  // 若從 vProject 進來（有 pid），只預選那個 project；其他情況都預設不選
+  const initialChecked = new Set();
+  if(pid) initialChecked.add(pid);
+
+  // 按群組分組
+  const byGroup={};
+  const orphans=[];
+  allProjs.forEach(p=>{
+    if(p.topicId && allGroups.find(g=>g.id===p.topicId)){
+      (byGroup[p.topicId]??=[]).push(p);
+    } else {
+      orphans.push(p);
+    }
+  });
+
+  const renderProjItem = (p)=>`
+    <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--card);margin-bottom:6px;cursor:pointer;transition:all .12s"
+      onmouseenter="this.style.borderColor='var(--sage)';this.style.background='var(--sage-light)'"
+      onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--card)'">
+      <input type="checkbox" value="${p.id}" class="exp-proj-cb" data-gid="${p.topicId||''}" ${initialChecked.has(p.id)?'checked':''}
+        onchange="updateExportCount()"
+        style="width:16px;height:16px;accent-color:var(--sage);cursor:pointer;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(p.name)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:1px">${caseCounts[p.id]||0} 筆病例 · ${(p.fields||[]).length} 欄位</div>
+      </div>
+    </label>`;
+
+  // 群組區塊
+  const groupSections = allGroups.map(g=>{
+    const ps=byGroup[g.id]||[];
+    if(!ps.length) return '';
+    return `
+      <div style="margin-bottom:14px;border-radius:10px;border:1px solid ${g.color}30;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 13px;background:${g.color}12;border-bottom:1px solid ${g.color}25">
+          <span style="font-size:14px">📁</span>
+          <span style="font-size:13px;font-weight:700;color:${g.color};flex:1">${escH(g.name)}</span>
+          <button onclick="exportToggleGroup('${g.id}',true)" style="font-size:11px;font-weight:700;color:${g.color};background:none;border:none;cursor:pointer;padding:2px 4px">全選</button>
+          <button onclick="exportToggleGroup('${g.id}',false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 4px">全不選</button>
+        </div>
+        <div style="padding:8px 8px 4px">
+          ${ps.map(renderProjItem).join('')}
+        </div>
+      </div>`;
+  }).join('');
+
+  // 未分類區塊
+  const orphanSection = orphans.length?`
+    <div style="margin-bottom:14px;border-radius:10px;border:1px solid var(--border);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--cream);border-bottom:1px solid var(--border)">
+        <span style="font-size:14px">📋</span>
+        <span style="font-size:13px;font-weight:700;color:var(--ink2);flex:1">未分類</span>
+        <button onclick="exportToggleGroup('',true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 4px">全選</button>
+        <button onclick="exportToggleGroup('',false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 4px">全不選</button>
+      </div>
+      <div style="padding:8px 8px 4px">
+        ${orphans.map(renderProjItem).join('')}
+      </div>
+    </div>`:'';
 
   document.body.insertAdjacentHTML('beforeend',`
     <div class="overlay" id="sync-modal" onclick="if(event.target.id==='sync-modal')closeSyncMod()">
-      <div class="modal" style="max-width:520px">
+      <div class="modal" style="max-width:560px;max-height:90vh;display:flex;flex-direction:column">
         <div class="modal-hd">
           <span class="modal-title">🔄 資料匯出 ／ 匯入</span>
           <button class="btn-icon" onclick="closeSyncMod()">✕</button>
         </div>
-        <div class="modal-bd" style="padding-bottom:8px">
+        <div class="modal-bd" style="padding-bottom:8px;overflow-y:auto;flex:1">
 
           <!-- 匯出區 -->
           <div style="background:#EEF7F4;border-radius:12px;padding:16px;margin-bottom:16px;border:1px solid #C5E0D8">
-            <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:4px">📤 匯出資料給別人</div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">選擇要匯出的 Project，產生 JSON 檔案後傳給協助者</div>
-            <div id="export-proj-list">${projOptions}</div>
-            <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doExportJSON()">下載 JSON 檔案</button>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <div style="font-size:14px;font-weight:700;color:var(--ink)">📤 匯出資料給別人</div>
+              <div style="display:flex;gap:8px">
+                <button onclick="exportToggleAll(true)" style="font-size:12px;font-weight:700;color:var(--sage);background:rgba(255,255,255,.6);border:1px solid var(--sage);border-radius:6px;padding:3px 10px;cursor:pointer">全選</button>
+                <button onclick="exportToggleAll(false)" style="font-size:12px;font-weight:700;color:var(--muted);background:rgba(255,255,255,.6);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">全不選</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">勾選要匯出的 Project（可按群組勾選）</div>
+            <div id="export-proj-list" style="max-height:340px;overflow-y:auto;padding-right:4px">
+              ${groupSections}${orphanSection}
+            </div>
+            <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,.7);border-radius:8px;font-size:12px;color:var(--muted);text-align:center">
+              已選 <span id="exp-count" style="color:var(--sage);font-weight:700">${initialChecked.size}</span> 個 Project
+            </div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doExportJSON()">📥 下載 JSON 檔案</button>
           </div>
 
           <!-- 匯入區 -->
@@ -2975,6 +3224,22 @@ async function showSyncModal(pid){
     </div>`);
 }
 
+function updateExportCount(){
+  const n=document.querySelectorAll('#export-proj-list .exp-proj-cb:checked').length;
+  const el=document.getElementById('exp-count');
+  if(el) el.textContent=n;
+}
+
+function exportToggleAll(checked){
+  document.querySelectorAll('#export-proj-list .exp-proj-cb').forEach(cb=>cb.checked=checked);
+  updateExportCount();
+}
+
+function exportToggleGroup(gid, checked){
+  document.querySelectorAll(`#export-proj-list .exp-proj-cb[data-gid="${gid}"]`).forEach(cb=>cb.checked=checked);
+  updateExportCount();
+}
+
 function closeSyncMod(){document.getElementById('sync-modal')?.remove();}
 
 function handleJSONDrop(e){
@@ -2986,8 +3251,8 @@ function handleJSONDrop(e){
 }
 
 async function doExportJSON(){
-  const checked=[...document.querySelectorAll('#export-proj-list input:checked')].map(el=>el.value);
-  if(!checked.length){alert('請至少選擇一個 Project');return;}
+  const checked=[...document.querySelectorAll('#export-proj-list .exp-proj-cb:checked')].map(el=>el.value);
+  if(!checked.length){alert('請至少勾選一個 Project');return;}
   const allTopics=await dbAll('topics');
   const usedTopicIds=new Set();
   const payload={version:2,exportedAt:new Date().toISOString(),topics:[],projects:[]};

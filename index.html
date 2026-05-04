@@ -873,17 +873,54 @@ async function deleteSelected(){
 async function duplicateProject(pid){
   const src=await dbGet('projects',pid);
   if(!src) return;
-  if(!confirm(`複製「${src.name}」為新 Project？\n（會複製所有欄位設定、分區備註、預設拍照清單，但不會複製病例資料）`)) return;
-  const newProj={
-    ...src,
-    id:uid(),
-    name:src.name+' （副本）',
-    createdAt:Date.now()
-  };
-  if(newProj.fields) newProj.fields=newProj.fields.map(f=>({...f,id:uid()}));
-  await dbPut('projects',newProj);
-  toast(`✅ 已複製「${src.name}」`);
-  if(VIEW==='group') vGroup(); else vProjects();
+  const cases=await dbIdx('cases','pid',pid);
+  showDupChoice({
+    title:`複製 Project「${src.name}」`,
+    caseCount:cases.length,
+    onConfirm:async(includeCases)=>{
+      const newPid=uid();
+      const newProj={
+        ...src,
+        id:newPid,
+        name:src.name+' （副本）',
+        createdAt:Date.now()
+      };
+      // 重新產生欄位 ID（建立 oldId → newId 對照表，方便複製病例時轉換 data key）
+      const fieldIdMap={};
+      if(newProj.fields){
+        newProj.fields=newProj.fields.map(f=>{
+          const newId=uid();
+          fieldIdMap[f.id]=newId;
+          return {...f,id:newId};
+        });
+      }
+      await dbPut('projects',newProj);
+
+      let copiedCases=0;
+      if(includeCases){
+        for(const c of cases){
+          const newData={};
+          // 用 fieldIdMap 轉換 data 的 key
+          for(const [oldFid,val] of Object.entries(c.data||{})){
+            const newFid=fieldIdMap[oldFid]||oldFid; // 保留 __photoNote 等特殊 key
+            newData[newFid]=val;
+          }
+          const newCase={
+            ...c,
+            id:uid(),
+            projectId:newPid,
+            data:newData,
+            createdAt:Date.now(),
+            updatedAt:Date.now()
+          };
+          await dbPut('cases',newCase);
+          copiedCases++;
+        }
+      }
+      toast(`✅ 已複製「${src.name}」${includeCases?`（含 ${copiedCases} 筆病例）`:'（空白範本）'}`);
+      if(VIEW==='group') vGroup(); else vProjects();
+    }
+  });
 }
 
 async function duplicateGroup(gid){
@@ -891,34 +928,145 @@ async function duplicateGroup(gid){
   if(!src) return;
   const allProjs=await dbAll('projects');
   const inGroup=allProjs.filter(p=>p.topicId===gid);
-  if(!confirm(`複製整個群組「${src.name}」？\n\n• 將建立新群組「${src.name} （副本）」\n• 群組內的 ${inGroup.length} 個 Project 結構會一起複製\n• 病例資料不會被複製（副本是空白病例的範本）`)) return;
-
-  // 1. 複製群組
-  const newGroup={
-    ...src,
-    id:uid(),
-    name:src.name+' （副本）',
-    createdAt:Date.now()
-  };
-  await dbPut('topics',newGroup);
-
-  // 2. 複製群組內的 projects（不複製病例）
+  // 計算總病例數
+  let totalCases=0;
   for(const p of inGroup){
-    const newProj={
-      ...p,
-      id:uid(),
-      name:p.name,  // 群組內 project 名稱保持原樣，靠群組區分
-      topicId:newGroup.id,
-      createdAt:Date.now()
-    };
-    if(newProj.fields) newProj.fields=newProj.fields.map(f=>({...f,id:uid()}));
-    await dbPut('projects',newProj);
+    const cs=await dbIdx('cases','pid',p.id);
+    totalCases+=cs.length;
   }
+  showDupChoice({
+    title:`複製群組「${src.name}」`,
+    desc:`群組內 ${inGroup.length} 個 Project`,
+    caseCount:totalCases,
+    onConfirm:async(includeCases)=>{
+      // 1. 複製群組
+      const newGroupId=uid();
+      const newGroup={...src,id:newGroupId,name:src.name+' （副本）',createdAt:Date.now()};
+      await dbPut('topics',newGroup);
 
-  toast(`✅ 已複製群組「${src.name}」（含 ${inGroup.length} 個 Project）`);
-  // 切換到新群組
-  GID=newGroup.id;
-  if(VIEW==='group') vGroup(); else { VIEW='group'; render(); }
+      let copiedCases=0;
+      // 2. 複製群組內每個 project
+      for(const p of inGroup){
+        const newPid=uid();
+        const fieldIdMap={};
+        const newProj={
+          ...p,
+          id:newPid,
+          topicId:newGroupId,
+          createdAt:Date.now()
+        };
+        if(newProj.fields){
+          newProj.fields=newProj.fields.map(f=>{
+            const newId=uid();
+            fieldIdMap[f.id]=newId;
+            return {...f,id:newId};
+          });
+        }
+        await dbPut('projects',newProj);
+
+        if(includeCases){
+          const cases=await dbIdx('cases','pid',p.id);
+          for(const c of cases){
+            const newData={};
+            for(const [oldFid,val] of Object.entries(c.data||{})){
+              const newFid=fieldIdMap[oldFid]||oldFid;
+              newData[newFid]=val;
+            }
+            await dbPut('cases',{
+              ...c,
+              id:uid(),
+              projectId:newPid,
+              data:newData,
+              createdAt:Date.now(),
+              updatedAt:Date.now()
+            });
+            copiedCases++;
+          }
+        }
+      }
+      toast(`✅ 已複製群組「${src.name}」（${inGroup.length} 個 Project${includeCases?`、${copiedCases} 筆病例`:'，空白範本'}）`);
+      GID=newGroupId;
+      if(VIEW==='group') vGroup(); else { VIEW='group'; render(); }
+    }
+  });
+}
+
+// ── 複製選擇 Modal（共用：Project 與群組）──────────────────────────────
+function showDupChoice({title, desc, caseCount, onConfirm}){
+  document.getElementById('dup-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="dup-modal" onclick="if(event.target.id==='dup-modal')document.getElementById('dup-modal').remove()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-hd">
+          <div>
+            <div class="modal-title">📋 ${escH(title)}</div>
+            ${desc?`<div style="font-size:12px;color:var(--muted);margin-top:3px">${escH(desc)}</div>`:''}
+          </div>
+          <button class="btn-icon" onclick="document.getElementById('dup-modal').remove()">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+            請選擇複製方式：
+          </div>
+
+          <!-- 選項一：空白範本 -->
+          <div class="dup-option" data-include="false"
+            onclick="dupChoose(this)"
+            style="border:2px solid var(--sage);border-radius:12px;padding:16px;margin-bottom:10px;cursor:pointer;transition:all .15s;background:var(--sage-light)">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div class="dup-radio" style="width:20px;height:20px;border-radius:50%;border:2.5px solid var(--sage);background:var(--sage);flex-shrink:0;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">✓</div>
+              <div>
+                <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px">📐 只複製結構（空白範本）</div>
+                <div style="font-size:12px;color:var(--muted);line-height:1.6">複製所有欄位設定、分區備註、AI 拍照清單，但<strong>不複製任何病例資料</strong>。適合要重新收集新一批資料時使用。</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 選項二：含病例資料 -->
+          <div class="dup-option" data-include="true"
+            onclick="dupChoose(this)"
+            style="border:1.5px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:all .15s;background:var(--card)">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div class="dup-radio" style="width:20px;height:20px;border-radius:50%;border:2.5px solid var(--border);background:#fff;flex-shrink:0;margin-top:2px"></div>
+              <div>
+                <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px">📂 連同所有病例資料一起複製</div>
+                <div style="font-size:12px;color:var(--muted);line-height:1.6">完整複製結構＋全部已填寫的病例（共 <strong style="color:var(--gold)">${caseCount}</strong> 筆）。適合做資料備份或建立分支進行不同分析。</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="document.getElementById('dup-modal').remove()">取消</button>
+          <button class="btn btn-primary" id="dup-confirm-btn">確認複製</button>
+        </div>
+      </div>
+    </div>`);
+
+  // 綁定確認
+  document.getElementById('dup-confirm-btn').onclick=()=>{
+    const sel=document.querySelector('.dup-option.dup-selected');
+    const include=sel?.dataset.include==='true';
+    document.getElementById('dup-modal').remove();
+    onConfirm(include);
+  };
+  // 預設選第一個（空白範本）
+  document.querySelector('.dup-option').classList.add('dup-selected');
+}
+
+function dupChoose(el){
+  document.querySelectorAll('.dup-option').forEach(o=>{
+    o.classList.remove('dup-selected');
+    o.style.border='1.5px solid var(--border)';
+    o.style.background='var(--card)';
+    const r=o.querySelector('.dup-radio');
+    if(r){r.style.borderColor='var(--border)';r.style.background='#fff';r.textContent='';}
+  });
+  el.classList.add('dup-selected');
+  el.style.border='2px solid var(--sage)';
+  el.style.background='var(--sage-light)';
+  const r=el.querySelector('.dup-radio');
+  if(r){r.style.borderColor='var(--sage)';r.style.background='var(--sage)';r.style.color='#fff';r.style.fontSize='11px';r.style.fontWeight='700';r.style.display='flex';r.style.alignItems='center';r.style.justifyContent='center';r.textContent='✓';}
 }
 
 // ── Project (list + table) ─────────────────────────────────────────────────

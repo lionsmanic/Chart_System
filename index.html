@@ -1084,6 +1084,7 @@ async function vProject(){
       📥 匯入 CSV
       <input type="file" accept=".csv" style="display:none" onchange="importCSV(this,'${p.id}')">
     </label>
+    <button class="btn btn-ghost" onclick="applyDefaultsToAll('${p.id}')" title="一次填入所有病例的空白欄位（不會洗掉已填內容）">💡 套用預設值</button>
     <button class="btn btn-ghost" onclick="vSettings('${p.id}')">⚙️ 欄位設定</button>
     <button class="btn btn-primary" onclick="newCase('${p.id}')">＋ 新增病例</button>`;
   const listCols = fields.slice(0, 2);
@@ -1208,6 +1209,7 @@ async function vCase(){
   document.getElementById('hactions').innerHTML=`
     <button class="btn btn-ghost btn-sm" onclick="expandAllSections()" title="展開所有分區">全展開</button>
     <button class="btn btn-ghost btn-sm" onclick="collapseAllSections()" title="收起所有分區">全收起</button>
+    <button class="btn btn-ghost" onclick="applyDefaultsToCase()" title="只填入空白欄位，已填的不會洗掉">💡 套用預設值</button>
     <button class="btn btn-ghost" onclick="showAIScan()" title="拍照上傳病歷，AI自動填入欄位">📷 AI 掃描病歷</button>
     <button class="btn btn-danger btn-sm" onclick="delCase('${c.id}')">🗑️ 刪除</button>
     <button class="btn btn-success" onclick="saveCase()">💾 儲存</button>`;
@@ -1428,10 +1430,13 @@ async function vCase(){
 
 function fInput(f,v){
   const a=`data-fid="${f.id}"`;
-  if(f.type==='textarea') return `<textarea class="ftextarea" ${a}>${escH(v)}</textarea>`;
+  // 預設值僅在欄位為空時當作 placeholder 提示
+  const isEmpty=!v||v==='';
+  const ph = isEmpty&&f.defaultValue ? `placeholder="預設：${escH(f.defaultValue.replace(/\|/g,'、'))}"` : '';
+  if(f.type==='textarea') return `<textarea class="ftextarea" ${a} ${ph}>${escH(v)}</textarea>`;
   if(f.type==='select'){
     const opts=(f.options||'').split(',').filter(Boolean);
-    return `<select class="fselect" ${a}><option value="">請選擇</option>${opts.map(o=>`<option ${v===o?'selected':''}>${escH(o)}</option>`).join('')}</select>`;
+    return `<select class="fselect" ${a}><option value="">${isEmpty&&f.defaultValue?`預設：${escH(f.defaultValue)}（未套用）`:'請選擇'}</option>${opts.map(o=>`<option ${v===o?'selected':''}>${escH(o)}</option>`).join('')}</select>`;
   }
   if(f.type==='multiselect'){
     const opts=(f.options||'').split(',').filter(Boolean);
@@ -1444,9 +1449,10 @@ function fInput(f,v){
           ${escH(o)}
           <input type="hidden" value="${escH(o)}">
         </label>`).join('')}
+      ${isEmpty&&f.defaultValue?`<div style="width:100%;font-size:11px;color:var(--gold);margin-top:4px">💡 預設值：${escH(f.defaultValue.replace(/\|/g,'、'))}（未套用）</div>`:''}
     </div>`;
   }
-  return `<input class="finput" type="${f.type||'text'}" value="${escH(v)}" ${a}>`;
+  return `<input class="finput" type="${f.type||'text'}" value="${escH(v)}" ${a} ${ph}>`;
 }
 
 // 統一套用欄位值（支援 multiselect）
@@ -2213,6 +2219,198 @@ async function saveCase(){
   document.getElementById('savebar').classList.remove('on');
   toast('✅ 已儲存');
 }
+
+// ── 套用預設值（單一病例）──────────────────────────────────────────────
+async function applyDefaultsToCase(){
+  const p=await dbGet('projects',PID);
+  const fields=(p.fields||DEFAULT_FIELDS).filter(f=>f.defaultValue&&f.defaultValue.trim());
+  if(!fields.length){
+    toast('此 Project 尚未在欄位設定中設定任何預設值');
+    return;
+  }
+  // 計算會填入哪些欄位（只填入「目前空白」的）
+  const willFill=fields.filter(f=>{
+    const v=formData[f.id];
+    return v===undefined||v===null||v==='';
+  });
+  if(!willFill.length){
+    toast('ℹ️ 所有有預設值的欄位都已填寫，無需套用');
+    return;
+  }
+  // 確認 Modal
+  document.getElementById('apply-def-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="apply-def-modal" onclick="if(event.target.id==='apply-def-modal')document.getElementById('apply-def-modal').remove()">
+      <div class="modal" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column">
+        <div class="modal-hd">
+          <span class="modal-title">💡 套用預設值</span>
+          <button class="btn-icon" onclick="document.getElementById('apply-def-modal').remove()">✕</button>
+        </div>
+        <div class="modal-bd" style="overflow-y:auto;flex:1">
+          <div style="background:var(--gold-light);border:1px solid #E0D0A8;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:var(--ink2);line-height:1.7">
+            ✅ <strong>只會填入空白欄位</strong>，已填寫的內容<strong>不會被覆蓋</strong>。<br>
+            ✅ 您可以下方逐一勾選要套用的欄位。
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px">
+            <span style="font-size:12px;font-weight:700;color:var(--muted)">將填入 ${willFill.length} 個空白欄位</span>
+            <div style="display:flex;gap:10px">
+              <button onclick="toggleAllAppDef(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
+              <button onclick="toggleAllAppDef(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
+            </div>
+          </div>
+
+          <div style="background:var(--card);border-radius:10px;border:1px solid var(--border2);overflow:hidden">
+            ${willFill.map(f=>`
+              <label style="display:flex;align-items:flex-start;gap:11px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s"
+                onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
+                <input type="checkbox" class="app-def-cb" data-fid="${f.id}" checked
+                  style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">${escH(f.label)}（${escH(f.section)}）</div>
+                  <div style="font-size:14px;color:var(--ink);font-weight:600">${escH(f.defaultValue.replace(/\|/g,'、'))}</div>
+                </div>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="document.getElementById('apply-def-modal').remove()">取消</button>
+          <button class="btn btn-primary" onclick="commitApplyDefCase()">✅ 套用</button>
+        </div>
+      </div>
+    </div>`);
+}
+function toggleAllAppDef(checked){
+  document.querySelectorAll('.app-def-cb').forEach(cb=>cb.checked=checked);
+}
+function commitApplyDefCase(){
+  const checks=document.querySelectorAll('.app-def-cb:checked');
+  if(!checks.length){toast('請至少勾選一個欄位');return;}
+  let count=0;
+  checks.forEach(async cb=>{
+    const fid=cb.dataset.fid;
+    const p=await dbGet('projects',PID);
+    const f=(p.fields||DEFAULT_FIELDS).find(x=>x.id===fid);
+    if(!f) return;
+    // 只在目前仍是空白時才填入
+    const cur=formData[fid];
+    if(cur===undefined||cur===null||cur===''){
+      applyFieldValue(fid,f.defaultValue);
+      count++;
+    }
+  });
+  // 觸發 dirty
+  dirty=true;
+  document.getElementById('savebar').classList.add('on');
+  document.getElementById('apply-def-modal').remove();
+  setTimeout(()=>toast(`✅ 已套用預設值到空白欄位，請確認後儲存`),50);
+}
+
+// ── 套用預設值（總覽表批次）─────────────────────────────────────────────
+async function applyDefaultsToAll(pid){
+  const p=await dbGet('projects',pid);
+  const fields=(p.fields||DEFAULT_FIELDS).filter(f=>f.defaultValue&&f.defaultValue.trim());
+  if(!fields.length){toast('此 Project 尚未設定任何預設值');return;}
+  const cases=await dbIdx('cases','pid',pid);
+  if(!cases.length){toast('尚無病例');return;}
+
+  // 預先計算每個欄位影響多少筆（只算目前空白的）
+  const fieldStats=fields.map(f=>{
+    const blankCount=cases.filter(c=>{
+      const v=c.data?.[f.id];
+      return v===undefined||v===null||v==='';
+    }).length;
+    return {field:f, blankCount};
+  }).filter(x=>x.blankCount>0);
+
+  if(!fieldStats.length){
+    toast('ℹ️ 所有預設值欄位在所有病例中都已填寫，無需套用');
+    return;
+  }
+
+  document.getElementById('apply-def-all-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="apply-def-all-modal" onclick="if(event.target.id==='apply-def-all-modal')document.getElementById('apply-def-all-modal').remove()">
+      <div class="modal" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column">
+        <div class="modal-hd">
+          <span class="modal-title">💡 批次套用預設值</span>
+          <button class="btn-icon" onclick="document.getElementById('apply-def-all-modal').remove()">✕</button>
+        </div>
+        <div class="modal-bd" style="overflow-y:auto;flex:1">
+          <div style="background:var(--gold-light);border:1px solid #E0D0A8;border-radius:10px;padding:13px 15px;margin-bottom:14px;font-size:13px;color:var(--ink2);line-height:1.7">
+            ✅ <strong>只填入目前空白的儲存格</strong>，已填寫的不會被覆蓋。<br>
+            ✅ 共 <strong>${cases.length}</strong> 筆病例 · 下方數字表示「將被填入的儲存格數」。
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px">
+            <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位</span>
+            <div style="display:flex;gap:10px">
+              <button onclick="toggleAllAppDefAll(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
+              <button onclick="toggleAllAppDefAll(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
+            </div>
+          </div>
+
+          <div style="background:var(--card);border-radius:10px;border:1px solid var(--border2);overflow:hidden">
+            ${fieldStats.map(({field:f,blankCount})=>`
+              <label style="display:flex;align-items:flex-start;gap:11px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s"
+                onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
+                <input type="checkbox" class="app-def-all-cb" data-fid="${f.id}" checked
+                  style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
+                    <span style="font-size:13px;font-weight:700;color:var(--ink)">${escH(f.label)}</span>
+                    <span style="font-size:11px;color:var(--muted)">（${escH(f.section)}）</span>
+                    <span style="font-size:11px;background:var(--gold);color:#fff;padding:2px 8px;border-radius:10px;font-weight:700">將填入 ${blankCount} 筆</span>
+                  </div>
+                  <div style="font-size:13px;color:var(--gold);font-weight:600">→ ${escH(f.defaultValue.replace(/\|/g,'、'))}</div>
+                </div>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="document.getElementById('apply-def-all-modal').remove()">取消</button>
+          <button class="btn btn-primary" onclick="commitApplyDefAll('${pid}')">✅ 確認套用</button>
+        </div>
+      </div>
+    </div>`);
+}
+function toggleAllAppDefAll(checked){
+  document.querySelectorAll('.app-def-all-cb').forEach(cb=>cb.checked=checked);
+}
+async function commitApplyDefAll(pid){
+  const checks=[...document.querySelectorAll('.app-def-all-cb:checked')];
+  if(!checks.length){toast('請至少勾選一個欄位');return;}
+  const p=await dbGet('projects',pid);
+  const allFields=p.fields||DEFAULT_FIELDS;
+  const cases=await dbIdx('cases','pid',pid);
+
+  let totalFilled=0;
+  for(const c of cases){
+    let changed=false;
+    for(const cb of checks){
+      const fid=cb.dataset.fid;
+      const f=allFields.find(x=>x.id===fid);
+      if(!f||!f.defaultValue) continue;
+      const cur=c.data?.[fid];
+      if(cur===undefined||cur===null||cur===''){
+        c.data[fid]=f.defaultValue;
+        changed=true;
+        totalFilled++;
+      }
+    }
+    if(changed){
+      c.updatedAt=Date.now();
+      await dbPut('cases',c);
+    }
+  }
+
+  document.getElementById('apply-def-all-modal').remove();
+  toast(`✅ 已填入 ${totalFilled} 個空白儲存格`);
+  // 重新渲染
+  const newCases=await dbIdx('cases','pid',pid);
+  const orderedFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+  document.getElementById('tc-table').innerHTML=buildTable(newCases,orderedFields,p);
+}
 function discardChanges(){
   if(!confirm('確定放棄所有變更？'))return;
   formData={...formOrig};dirty=false;
@@ -2550,6 +2748,7 @@ function fiHTML(f){
         ${f.required?'<span style="font-size:11px;padding:2px 8px;background:#FEF3C7;border-radius:12px;color:#B45309;font-weight:600">必填</span>':''}
       </div>
       ${f.options?`<div style="font-size:12px;color:var(--muted);margin-top:3px">選項：${escH(f.options)}</div>`:''}
+      ${f.defaultValue?`<div style="font-size:12px;color:var(--gold);margin-top:3px">💡 預設值：${escH(f.defaultValue.replace(/\|/g,'、'))}</div>`:''}
     </div>
     <div style="display:flex;gap:6px;flex-shrink:0">
       <button class="btn btn-outline btn-sm" onclick="editFieldInline('${f.id}')" style="font-size:12px;padding:5px 12px">編輯</button>
@@ -2649,6 +2848,15 @@ function editFieldInline(fid){
             </div>
           </div>
 
+          <div class="fg" style="background:var(--gold-light);border:1px solid #E0D0A8;border-radius:10px;padding:12px 14px">
+            <label class="flabel" style="margin-bottom:6px">💡 預設值（最常出現的答案）</label>
+            <input class="finput" id="ef-defaultval" value="${escH(f.defaultValue||'')}" placeholder="${f.type==='multiselect'?'多個值用 | 分隔，例：化療|放療':'例：女、健康、否、N/A'}" style="background:#fff">
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6">
+              ⚠️ <strong>不會自動填入</strong>新病例，避免誤以為已抄錄。<br>
+              在病例頁或總覽表用「<strong>📥 套用預設值</strong>」按鈕主動套用，<strong>只填入空白欄位</strong>，已填的內容不會被洗掉。
+            </div>
+          </div>
+
           <div class="fg" style="margin-bottom:0">
             <label class="flabel">分區顏色</label>
             <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
@@ -2694,11 +2902,12 @@ function saveFieldEdit(fid){
   const newColor=document.querySelector('.ef-cdot.act')?.dataset.c||f.sectionColor;
   const newType=document.querySelector('#ef-tchips .tchip.sel')?.dataset.t||f.type;
   const newOpts=document.getElementById('ef-options')?.value.trim()||'';
+  const newDefault=document.getElementById('ef-defaultval')?.value.trim()||'';
   if(!newLabel){alert('請輸入欄位名稱');return;}
   f.label=newLabel; f.section=newSec; f.sectionColor=newColor;
   f.type=newType;
   f.options = ['select','multiselect'].includes(newType) ? newOpts : '';
-  // 同步同分區其他欄位顏色
+  f.defaultValue = newDefault;
   editFields.forEach(x=>{if(x.section===newSec) x.sectionColor=newColor;});
   closeEF();
   document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();

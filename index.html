@@ -477,7 +477,7 @@
 let db;
 function openDB(){
   return new Promise((res,rej)=>{
-    const r=indexedDB.open('PatientSys',2);
+    const r=indexedDB.open('PatientSys',3);
     r.onupgradeneeded=e=>{
       const d=e.target.result;
       if(!d.objectStoreNames.contains('projects')) d.createObjectStore('projects',{keyPath:'id'});
@@ -485,6 +485,7 @@ function openDB(){
         const s=d.createObjectStore('cases',{keyPath:'id'});
         s.createIndex('pid','projectId',{unique:false});
       }
+      if(!d.objectStoreNames.contains('topics')) d.createObjectStore('topics',{keyPath:'id'});
     };
     r.onsuccess=e=>{db=e.target.result;res();};
     r.onerror=rej;
@@ -502,6 +503,9 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 let VIEW='projects', PID=null, CID=null;
 let formData={}, formOrig={}, dirty=false;
 let editFields=[];
+let selectMode=false;       // 是否在多選模式
+let selectedPids=new Set(); // 已選的 project ids
+let selectedTids=new Set(); // 已選的 topic ids
 
 // ── Section colors ─────────────────────────────────────────────────────────
 const COLORS=['#1d6fa4','#0d9488','#7c3aed','#be185d','#b45309','#1e40af','#0f766e','#6d28d9'];
@@ -552,39 +556,155 @@ async function render(){
 // ── Projects ───────────────────────────────────────────────────────────────
 async function vProjects(){
   const projs=await dbAll('projects');
+  const topics=await dbAll('topics');
+  // 確保新建的 topic 在最上方（依 createdAt 排序）
+  topics.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+
+  // 病例數預先抓
+  const caseCounts={};
+  for(const p of projs){
+    const cs=await dbIdx('cases','pid',p.id);
+    caseCounts[p.id]=cs.length;
+  }
+
   document.getElementById('hbreadcrumb').textContent='';
-  document.getElementById('hactions').innerHTML=`
+  const selectBar = selectMode ? `
+    <button class="btn btn-ghost" onclick="exitSelectMode()">取消</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteSelected()">🗑️ 刪除已選 (${selectedPids.size+selectedTids.size})</button>
+  ` : `
+    <button class="btn btn-ghost" onclick="enterSelectMode()" title="選取多個項目">☑ 選取</button>
     <button class="btn btn-ghost" onclick="showSyncModal()">🔄 匯出／匯入</button>
     <button class="btn btn-ghost" onclick="exportAll()">📤 全部匯出CSV</button>
-    <button class="btn btn-primary" onclick="showProjModal(null)">＋ 新增 Project</button>`;
+    <button class="btn btn-ghost" onclick="showTopicModal(null)">🗂️ 新增主題</button>
+    <button class="btn btn-primary" onclick="showProjModal(null)">＋ 新增 Project</button>
+  `;
+  document.getElementById('hactions').innerHTML=selectBar;
+
+  // 將 projects 依 topicId 分組
+  const projsByTopic={};
+  const orphanProjs=[];
+  projs.forEach(p=>{
+    if(p.topicId && topics.find(t=>t.id===p.topicId)){
+      (projsByTopic[p.topicId]??=[]).push(p);
+    } else {
+      orphanProjs.push(p);
+    }
+  });
+
+  const renderProjCard = (p)=>{
+    const isSel=selectedPids.has(p.id);
+    return `
+      <div class="project-card" onclick="${selectMode?`toggleSelectProj('${p.id}')`:`goProject('${p.id}')`}"
+        style="${isSel?'box-shadow:0 0 0 3px var(--sage),0 8px 30px rgba(62,114,101,.18);border-color:var(--sage)':''}">
+        ${selectMode?`<div style="position:absolute;top:14px;left:14px;width:22px;height:22px;border-radius:50%;border:2.5px solid ${isSel?'var(--sage)':'var(--border)'};background:${isSel?'var(--sage)':'#fff'};display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;font-weight:700">${isSel?'✓':''}</div>`:`
+        <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+          <button class="btn-icon" onclick="event.stopPropagation();duplicateProject('${p.id}')" title="複製此 Project 結構">📋</button>
+          <button class="btn-icon" onclick="event.stopPropagation();showProjModal('${p.id}')" title="編輯">✏️</button>
+          <button class="btn-icon" onclick="event.stopPropagation();delProject('${p.id}')" title="刪除">🗑️</button>
+        </div>`}
+        <div class="project-card-name" style="${selectMode?'padding-left:32px':''}">${escH(p.name)}</div>
+        <div class="project-card-desc">${escH(p.description||'（無描述）')}</div>
+        <div class="project-card-meta">
+          <span class="mbadge">${caseCounts[p.id]||0} 筆病例</span>
+          <span class="mbadge" style="background:#f0fdf4;color:#16a34a">${(p.fields||DEFAULT_FIELDS).length} 欄位</span>
+        </div>
+      </div>`;
+  };
+
   const app=document.getElementById('app');
   app.innerHTML=`
     <div class="page-title">所有 Projects</div>
-    <div class="page-sub">每個 Project 獨立管理病例，可自訂問卷欄位</div>
+    <div class="page-sub">${selectMode?'<span style="color:var(--sage);font-weight:700">選取模式</span> · 點擊任一項目進行勾選':'每個 Project 獨立管理病例 · 可建立「主題」分類整理'}</div>
+
+    ${topics.map(topic=>{
+      const tProjs=projsByTopic[topic.id]||[];
+      const isTopicSel=selectedTids.has(topic.id);
+      return `
+      <div style="margin-bottom:32px">
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;background:${topic.color}14;border-left:4px solid ${topic.color};border-radius:8px;margin-bottom:14px;${isTopicSel?'box-shadow:0 0 0 2px var(--sage)':''}"
+          onclick="${selectMode?`toggleSelectTopic('${topic.id}')`:''}"
+          ${selectMode?'style="cursor:pointer;"':''}>
+          ${selectMode?`<div style="width:20px;height:20px;border-radius:50%;border:2.5px solid ${isTopicSel?'var(--sage)':'var(--border)'};background:${isTopicSel?'var(--sage)':'#fff'};display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700;flex-shrink:0">${isTopicSel?'✓':''}</div>`:''}
+          <div style="width:10px;height:10px;border-radius:50%;background:${topic.color};flex-shrink:0"></div>
+          <span style="font-size:15px;font-weight:700;color:${topic.color};flex:1">${escH(topic.name)}</span>
+          <span style="font-size:12px;color:var(--muted);font-weight:600">${tProjs.length} 個 Project</span>
+          ${!selectMode?`
+          <button class="btn-icon" onclick="event.stopPropagation();showTopicModal('${topic.id}')" title="編輯主題" style="margin-left:6px">✏️</button>
+          <button class="btn-icon" onclick="event.stopPropagation();delTopic('${topic.id}')" title="刪除主題（不刪 Project）">🗑️</button>`:''}
+        </div>
+        ${tProjs.length?`<div class="project-grid">${tProjs.map(renderProjCard).join('')}</div>`:`
+        <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;background:var(--card);border:1.5px dashed var(--border);border-radius:14px">尚無 Project，點下方「＋ 新增 Project」並指定此主題</div>`}
+      </div>`;
+    }).join('')}
+
+    ${topics.length?`<div style="margin-bottom:14px;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">未分類</div>`:''}
     <div class="project-grid">
-      ${projs.map(p=>`
-        <div class="project-card" onclick="goProject('${p.id}')">
-          <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
-            <button class="btn-icon" onclick="event.stopPropagation();showProjModal('${p.id}')" title="編輯">✏️</button>
-            <button class="btn-icon" onclick="event.stopPropagation();delProject('${p.id}')" title="刪除">🗑️</button>
-          </div>
-          <div class="project-card-name">${escH(p.name)}</div>
-          <div class="project-card-desc">${escH(p.description||'（無描述）')}</div>
-          <div class="project-card-meta">
-            <span class="mbadge" id="cc-${p.id}">…</span>
-            <span class="mbadge" style="background:#f0fdf4;color:#16a34a">${(p.fields||DEFAULT_FIELDS).length} 欄位</span>
-          </div>
-        </div>`).join('')}
+      ${orphanProjs.map(renderProjCard).join('')}
+      ${!selectMode?`
       <div class="project-new" onclick="showProjModal(null)">
         <div class="project-new-icon">＋</div>
         <div style="font-size:14px;font-weight:600">建立新 Project</div>
-      </div>
+      </div>`:''}
     </div>`;
-  for(const p of projs){
-    const cs=await dbIdx('cases','pid',p.id);
-    const el=document.getElementById('cc-'+p.id);
-    if(el) el.textContent=cs.length+' 筆病例';
+}
+
+function enterSelectMode(){
+  selectMode=true; selectedPids.clear(); selectedTids.clear();
+  vProjects();
+}
+function exitSelectMode(){
+  selectMode=false; selectedPids.clear(); selectedTids.clear();
+  vProjects();
+}
+function toggleSelectProj(pid){
+  if(selectedPids.has(pid)) selectedPids.delete(pid); else selectedPids.add(pid);
+  vProjects();
+}
+function toggleSelectTopic(tid){
+  if(selectedTids.has(tid)) selectedTids.delete(tid); else selectedTids.add(tid);
+  vProjects();
+}
+
+async function deleteSelected(){
+  const total=selectedPids.size+selectedTids.size;
+  if(!total){toast('請先勾選項目');return;}
+  const projCount=selectedPids.size;
+  const topicCount=selectedTids.size;
+  if(!confirm(`確定刪除已選的 ${projCount} 個 Project${topicCount?` 和 ${topicCount} 個主題`:''}？\n（Project 內的所有病例也會一起刪除，主題內的 Project 會變回未分類）`)) return;
+  // 刪除 projects 及其 cases
+  for(const pid of selectedPids){
+    const cs=await dbIdx('cases','pid',pid);
+    for(const c of cs) await dbDel('cases',c.id);
+    await dbDel('projects',pid);
   }
+  // 刪除 topics（被選的 topic 內 project 的 topicId 清掉，但若 project 也被選了就已刪掉了）
+  for(const tid of selectedTids){
+    const ps=await dbAll('projects');
+    for(const p of ps){
+      if(p.topicId===tid){ p.topicId=''; await dbPut('projects',p); }
+    }
+    await dbDel('topics',tid);
+  }
+  toast(`🗑️ 已刪除 ${projCount} 個 Project${topicCount?`、${topicCount} 個主題`:''}`);
+  exitSelectMode();
+}
+
+// 複製 Project（包含欄位設定，但不複製病例）
+async function duplicateProject(pid){
+  const src=await dbGet('projects',pid);
+  if(!src) return;
+  if(!confirm(`複製「${src.name}」為新 Project？\n（會複製所有欄位設定、分區備註、預設拍照清單，但不會複製病例資料）`)) return;
+  const newProj={
+    ...src,
+    id:uid(),
+    name:src.name+' （副本）',
+    createdAt:Date.now()
+  };
+  // 重新產生欄位 ID 避免衝突
+  if(newProj.fields) newProj.fields=newProj.fields.map(f=>({...f,id:uid()}));
+  await dbPut('projects',newProj);
+  toast(`✅ 已複製「${src.name}」`);
+  vProjects();
 }
 
 // ── Project (list + table) ─────────────────────────────────────────────────
@@ -2306,11 +2426,86 @@ async function saveSettings(pid){
   goProject(pid);
 }
 
+// ── Topic Modal ────────────────────────────────────────────────────────────
+async function showTopicModal(tid){
+  const t=tid?await dbGet('topics',tid):null;
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="tmodal" onclick="if(event.target.id==='tmodal')closeTopicMod()">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-hd"><span class="modal-title">${t?'編輯主題':'建立新主題'}</span><button class="btn-icon" onclick="closeTopicMod()">✕</button></div>
+        <div class="modal-bd">
+          <div class="fg">
+            <label class="flabel req">主題名稱</label>
+            <input class="finput" id="tm-name" value="${escH(t?.name||'')}" placeholder="例：婦癌研究、臨床試驗、教學案例…" autofocus>
+          </div>
+          <div class="fg" style="margin-bottom:0">
+            <label class="flabel">主題顏色</label>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+              ${COLORS.map((c,i)=>`<div class="cdot tm-cdot ${(t?.color||COLORS[0])===c?'act':''}" style="background:${c}" data-c="${c}" onclick="selTopicColor(this)"></div>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeTopicMod()">取消</button>
+          <button class="btn btn-primary" onclick="${t?`saveTopicEdit('${tid}')`:'createTopic()'}">${t?'儲存':'建立'}</button>
+        </div>
+      </div>
+    </div>`);
+  setTimeout(()=>document.getElementById('tm-name')?.focus(),60);
+}
+function closeTopicMod(){document.getElementById('tmodal')?.remove();}
+function selTopicColor(el){
+  document.querySelectorAll('.tm-cdot').forEach(d=>d.classList.remove('act'));
+  el.classList.add('act');
+}
+async function createTopic(){
+  const name=document.getElementById('tm-name').value.trim();
+  if(!name){alert('請輸入主題名稱');return;}
+  const color=document.querySelector('.tm-cdot.act')?.dataset.c||COLORS[0];
+  await dbPut('topics',{id:uid(),name,color,createdAt:Date.now()});
+  closeTopicMod();
+  toast(`✅ 主題「${name}」已建立`);
+  vProjects();
+}
+async function saveTopicEdit(tid){
+  const t=await dbGet('topics',tid);
+  t.name=document.getElementById('tm-name').value.trim()||t.name;
+  t.color=document.querySelector('.tm-cdot.act')?.dataset.c||t.color;
+  await dbPut('topics',t);
+  closeTopicMod();
+  toast('✅ 主題已更新');
+  vProjects();
+}
+async function delTopic(tid){
+  const t=await dbGet('topics',tid);
+  if(!confirm(`確定刪除主題「${t.name}」？\n（其下的 Project 會變回「未分類」，不會被刪除）`)) return;
+  // 把這個 topic 下的 projects 的 topicId 清空
+  const ps=await dbAll('projects');
+  for(const p of ps){
+    if(p.topicId===tid){p.topicId=''; await dbPut('projects',p);}
+  }
+  await dbDel('topics',tid);
+  toast('🗑️ 主題已刪除');
+  vProjects();
+}
+
 // ── Project Modal ──────────────────────────────────────────────────────────
 async function showProjModal(pid){
   const p=pid?await dbGet('projects',pid):null;
   const allProjs=await dbAll('projects');
   const otherProjs=allProjs.filter(x=>x.id!==pid);
+  const allTopics=await dbAll('topics');
+  allTopics.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+
+  const topicSelect = `
+    <div class="fg">
+      <label class="flabel">所屬主題</label>
+      <select class="fselect" id="mp-topic">
+        <option value="">未分類</option>
+        ${allTopics.map(t=>`<option value="${t.id}" ${p?.topicId===t.id?'selected':''}>${escH(t.name)}</option>`).join('')}
+      </select>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">將相關的 Project 歸入同一主題，方便整理</div>
+    </div>`;
 
   const copyFromSelect = !p && otherProjs.length ? `
     <div class="fg" style="margin-bottom:0">
@@ -2329,6 +2524,7 @@ async function showProjModal(pid){
         <div class="modal-bd">
           <div class="fg"><label class="flabel req">Project 名稱</label><input class="finput" id="mp-name" value="${escH(p?.name||'')}" placeholder="例：高血壓研究"></div>
           <div class="fg"><label class="flabel">描述</label><input class="finput" id="mp-desc" value="${escH(p?.description||'')}" placeholder="簡短說明此 Project 用途"></div>
+          ${topicSelect}
           ${copyFromSelect}
         </div>
         <div class="modal-ft">
@@ -2345,6 +2541,7 @@ async function createProj(){
   const name=document.getElementById('mp-name').value.trim();
   if(!name){alert('請輸入名稱');return;}
   const desc=document.getElementById('mp-desc').value.trim();
+  const topicId=document.getElementById('mp-topic')?.value||'';
   const copyFromId=document.getElementById('mp-copy-from')?.value||'';
 
   let fields=JSON.parse(JSON.stringify(DEFAULT_FIELDS));
@@ -2361,7 +2558,7 @@ async function createProj(){
     }
   }
 
-  await dbPut('projects',{id:uid(),name,description:desc,fields,sectionNotes,defaultPhotoNote,createdAt:Date.now()});
+  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,defaultPhotoNote,createdAt:Date.now()});
   closeMod();
   if(!copyFromId) toast('✅ Project 已建立');
   vProjects();
@@ -2370,6 +2567,7 @@ async function saveProjEdit(pid){
   const p=await dbGet('projects',pid);
   p.name=document.getElementById('mp-name').value.trim()||p.name;
   p.description=document.getElementById('mp-desc').value.trim();
+  p.topicId=document.getElementById('mp-topic')?.value||'';
   await dbPut('projects',p);closeMod();toast('✅ 已更新');render();
 }
 async function delProject(pid){
@@ -2790,12 +2988,16 @@ function handleJSONDrop(e){
 async function doExportJSON(){
   const checked=[...document.querySelectorAll('#export-proj-list input:checked')].map(el=>el.value);
   if(!checked.length){alert('請至少選擇一個 Project');return;}
-  const payload={version:1,exportedAt:new Date().toISOString(),projects:[]};
+  const allTopics=await dbAll('topics');
+  const usedTopicIds=new Set();
+  const payload={version:2,exportedAt:new Date().toISOString(),topics:[],projects:[]};
   for(const pid of checked){
     const p=await dbGet('projects',pid);
     const cases=await dbIdx('cases','pid',pid);
     payload.projects.push({...p,cases});
+    if(p.topicId) usedTopicIds.add(p.topicId);
   }
+  payload.topics=allTopics.filter(t=>usedTopicIds.has(t.id));
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -2814,7 +3016,12 @@ async function doImportJSON(input){
     const payload=JSON.parse(text);
     if(!payload.version||!payload.projects) throw new Error('格式錯誤');
 
-    let newCases=0, updCases=0, newProjs=0;
+    let newCases=0, updCases=0, newProjs=0, newTopics=0;
+    // 先匯入 topics（v2+）
+    for(const t of (payload.topics||[])){
+      const exT=await dbGet('topics',t.id);
+      if(!exT){await dbPut('topics',t);newTopics++;}
+    }
     for(const projData of payload.projects){
       const {cases,...proj}=projData;
       // 建立或更新 project
@@ -2833,7 +3040,7 @@ async function doImportJSON(input){
       }
     }
     resultEl.innerHTML=`<div style="color:var(--sage);font-weight:700;padding:10px 12px;background:#EEF7F4;border-radius:8px;font-size:13px">
-      ✅ 匯入完成！新增 ${newCases} 筆、更新 ${updCases} 筆病例${newProjs?`、新增 ${newProjs} 個 Project`:''}
+      ✅ 匯入完成！新增 ${newCases} 筆、更新 ${updCases} 筆病例${newProjs?`、新增 ${newProjs} 個 Project`:''}${newTopics?`、新增 ${newTopics} 個主題`:''}
     </div>`;
     // 重新整理
     setTimeout(()=>{closeSyncMod();render();},1500);
@@ -3037,7 +3244,10 @@ async function doWelcomeImport(input){
 
     resultEl.innerHTML=`<div style="padding:12px 14px;background:#EEF7F4;border-radius:10px;font-size:13px;color:var(--sage);font-weight:600;text-align:center">⏳ 匯入中，請稍候...</div>`;
 
-    let newCases=0, newProjs=0;
+    let newCases=0, newProjs=0, newTopics=0;
+    for(const t of (payload.topics||[])){
+      await dbPut('topics',t); newTopics++;
+    }
     for(const projData of payload.projects){
       const {cases,...proj} = projData;
       await dbPut('projects', proj); newProjs++;
@@ -3047,7 +3257,7 @@ async function doWelcomeImport(input){
     localStorage.setItem(FIRST_VISIT_KEY, '1');
     markBackupSeen();
 
-    resultEl.innerHTML=`<div style="padding:12px 14px;background:#EEF7F4;border-radius:10px;font-size:14px;color:var(--sage);font-weight:700;text-align:center">✅ 匯入完成！${newProjs} 個 Project、${newCases} 筆病例已恢復</div>`;
+    resultEl.innerHTML=`<div style="padding:12px 14px;background:#EEF7F4;border-radius:10px;font-size:14px;color:var(--sage);font-weight:700;text-align:center">✅ 匯入完成！${newProjs} 個 Project、${newCases} 筆病例${newTopics?`、${newTopics} 個主題`:''}已恢復</div>`;
 
     setTimeout(()=>{
       document.getElementById('welcome-modal')?.remove();

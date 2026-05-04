@@ -1371,7 +1371,7 @@ async function vCase(){
               <span style="font-size:11px;opacity:.55;font-weight:500">${sec.fields.length} 個欄位</span>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
-              ${sec.fields.some(f=>f.derivedRule&&f.derivedRule.trim())?`
+              ${(p.sectionDerives?.[name]||sec.fields.some(f=>f.derivedRule&&f.derivedRule.trim()))?`
                 <button onclick="event.stopPropagation();showSectionDerive('${escH(name)}')"
                   style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid #BFD8F4;background:#EEF7FF;color:#1d6fa4;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
                   onmouseenter="this.style.background='#D8E8F7'" onmouseleave="this.style.background='#EEF7FF'">
@@ -1663,9 +1663,22 @@ async function showSectionDerive(sectionName){
   if(!apiKey){toast('請先設定 Gemini API Key（在 AI 掃描病歷視窗中）');showAIScan();return;}
   const p=await dbGet('projects',PID);
   const allFields=p.fields||DEFAULT_FIELDS;
-  // 衍生目標欄位
-  deriveTargetFields=allFields.filter(f=>f.section===sectionName&&f.derivedRule&&f.derivedRule.trim());
-  if(!deriveTargetFields.length){toast('此區無 AI 衍生欄位');return;}
+  const sectionDerives=p.sectionDerives||{};
+  const sectionRule=(sectionDerives[sectionName]||'').trim();
+
+  // 決定目標欄位：
+  // 1) 若分區設了規則，本區所有欄位都是目標
+  // 2) 否則只取「個別有 derivedRule 的欄位」（向後相容）
+  let targets;
+  if(sectionRule){
+    targets=allFields.filter(f=>f.section===sectionName);
+  } else {
+    targets=allFields.filter(f=>f.section===sectionName&&f.derivedRule&&f.derivedRule.trim());
+  }
+  deriveTargetFields=targets;
+
+  if(!deriveTargetFields.length){toast('此區尚未設定 AI 推導規則');return;}
+
   // 來源資料：所有「非此次衍生目標」的已填欄位
   const sourceFields=allFields.filter(f=>!deriveTargetFields.find(t=>t.id===f.id));
   const sourceData=sourceFields
@@ -1683,10 +1696,15 @@ async function showSectionDerive(sectionName){
     return;
   }
 
+  // 顯示分區規則 + 各欄位規則
+  const ruleDisplay = sectionRule
+    ? `<div style="background:#FFF;border-left:4px solid #1d6fa4;padding:9px 12px;margin-bottom:10px;border-radius:6px;font-size:13px;line-height:1.7"><strong style="color:#1d6fa4">分區共用規則：</strong>${escH(sectionRule)}</div>`
+    : '';
   const targetSpec=deriveTargetFields.map(f=>{
     let s=`【${f.label}】（類型：${f.type}`;
     if(f.options) s+=`，可選值：${f.options}`;
-    s+='）\n推導規則：'+f.derivedRule;
+    s+='）';
+    if(f.derivedRule&&f.derivedRule.trim()) s+='\n個別規則：'+f.derivedRule;
     return s;
   }).join('\n\n');
 
@@ -1694,16 +1712,18 @@ async function showSectionDerive(sectionName){
     <div class="overlay" id="derive-modal" onclick="if(event.target.id==='derive-modal')closeDerive()">
       <div class="modal" style="max-width:600px;max-height:90vh;display:flex;flex-direction:column">
         <div style="background:linear-gradient(135deg,#1d6fa4,#4E8A9C);padding:20px 24px 16px;border-radius:19px 19px 0 0;color:#fff;position:relative">
-          <div style="font-size:15px;font-weight:800;margin-bottom:4px">✨ AI 推導衍生欄位</div>
+          <div style="font-size:15px;font-weight:800;margin-bottom:4px">✨ AI 推導本區欄位</div>
           <div style="font-size:12px;opacity:.7">分區：${escH(sectionName)} · 將推導 ${deriveTargetFields.length} 個欄位</div>
           <button onclick="closeDerive()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.85);border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
         </div>
         <div class="modal-bd" style="overflow-y:auto;flex:1">
 
           <div style="background:#EEF7FF;border:1px solid #BFD8F4;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#1d6fa4;line-height:1.7">
-            🧠 AI 將根據目前已填寫的欄位內容，按照您在欄位設定中定義的「推導規則」自動填入此區的衍生欄位。<br>
-            <strong>結果會逐一列出讓您確認</strong>，不會自動覆蓋。
+            🧠 AI 將根據其他已填寫的欄位內容，依照下方規則自動推導本區的所有欄位。<br>
+            <strong>結果會逐一列出讓您確認</strong>，已有資料的欄位<strong>預設不勾選</strong>避免誤覆蓋。
           </div>
+
+          ${ruleDisplay}
 
           <div id="derive-status" style="padding:13px 16px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px;margin-bottom:14px">
             <span id="derive-status-icon">🟡</span>
@@ -1716,14 +1736,14 @@ async function showSectionDerive(sectionName){
           </div>
 
           <details style="margin-top:14px">
-            <summary style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;padding:6px 0">查看送給 AI 的資料（除錯用）</summary>
-            <div style="background:var(--cream);border-radius:8px;padding:10px 12px;margin-top:6px;font-size:11px;line-height:1.6;color:var(--muted);white-space:pre-wrap;font-family:'DM Mono',monospace;max-height:200px;overflow-y:auto">${escH(sourceData)}\n\n推導目標：\n${escH(targetSpec)}</div>
+            <summary style="font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;padding:6px 0">查看送給 AI 的完整資料（除錯）</summary>
+            <div style="background:var(--cream);border-radius:8px;padding:10px 12px;margin-top:6px;font-size:11px;line-height:1.6;color:var(--muted);white-space:pre-wrap;font-family:'DM Mono',monospace;max-height:240px;overflow-y:auto">${sectionRule?'分區規則：\n'+escH(sectionRule)+'\n\n':''}已填欄位：\n${escH(sourceData)}\n\n推導目標：\n${escH(targetSpec)}</div>
           </details>
 
         </div>
         <div class="modal-ft">
           <button class="btn btn-outline" onclick="closeDerive()">取消</button>
-          <button id="derive-run-btn" class="btn btn-primary" onclick="runDerive()">🤖 開始推導</button>
+          <button id="derive-run-btn" class="btn btn-primary" onclick="runDerive()" data-section="${escH(sectionName)}">🤖 開始推導</button>
           <button id="derive-apply-btn" class="btn btn-success" onclick="applyDerive()" style="display:none">✅ 套用</button>
         </div>
       </div>
@@ -1751,6 +1771,10 @@ async function runDerive(){
 
   const p=await dbGet('projects',PID);
   const allFields=p.fields||DEFAULT_FIELDS;
+  const sectionDerives=p.sectionDerives||{};
+  const sectionName=document.getElementById('derive-run-btn')?.dataset.section||'';
+  const sectionRule=(sectionDerives[sectionName]||'').trim();
+
   const sourceFields=allFields.filter(f=>!deriveTargetFields.find(t=>t.id===f.id));
   const sourceData=sourceFields
     .map(f=>{
@@ -1765,15 +1789,19 @@ async function runDerive(){
   const targetSpec=deriveTargetFields.map(f=>{
     let s=`【${f.label}】類型=${f.type}`;
     if(f.options) s+=`；可選值=「${f.options}」（select/multiselect 必須完全相符）`;
-    s+='\n推導規則：'+f.derivedRule;
+    if(f.derivedRule&&f.derivedRule.trim()) s+='\n  個別規則：'+f.derivedRule;
     return s;
   }).join('\n\n');
+
+  const ruleSection = sectionRule
+    ? `分區共用推導原則（適用於本區所有欄位）：\n${sectionRule}\n\n`
+    : '';
 
   const prompt=`你是醫療研究分析助理。以下是一筆病例已填寫的欄位內容：
 
 ${sourceData}
 
-請根據上述資料，依下列每個欄位的「推導規則」，做出對應的判定：
+${ruleSection}請根據上述資料與規則，判定下列「分區：${sectionName}」的所有欄位：
 
 ${targetSpec}
 
@@ -1781,7 +1809,8 @@ ${targetSpec}
 規則：
 - select 類型：必須回覆「可選值」中完全相符的其中一個
 - multiselect 類型：多個值用 | 分隔（例：A|B|C）
-- 若資料不足無法判定，回覆字串 "無法推導" 並不要包含此 key
+- number 類型：直接回覆數字
+- 若資料不足無法判定該欄位，請省略該 key（不要回覆該欄位）
 - 只回覆 JSON，不要說明文字、不要 markdown`;
 
   const btn=document.getElementById('derive-run-btn');
@@ -1810,14 +1839,14 @@ ${targetSpec}
     }
 
     if(!items.length){
-      setDeriveStatus('error','AI 表示資料不足無法推導，請補齊前面的欄位');
+      setDeriveStatus('error','AI 表示資料不足無法推導，請補齊前面的欄位後再試');
       btn.disabled=false; btn.textContent='🔄 重新推導';
       return;
     }
 
     document.getElementById('derive-result-list').innerHTML=`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
-        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位（會覆蓋現有值）</span>
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位</span>
         <div style="display:flex;gap:10px">
           <button onclick="toggleAllDerive(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
           <button onclick="toggleAllDerive(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
@@ -1834,7 +1863,7 @@ ${targetSpec}
             <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:5px">${escH(field.label)}</div>
             ${currentVal?`<div style="font-size:12px;color:var(--muted);margin-bottom:3px;text-decoration:line-through">原值：${escH(currentVal.replace(/\|/g,'、'))}</div>`:''}
             <div style="font-size:14px;color:#1d6fa4;font-weight:700">→ ${escH(value.replace(/\|/g,'、'))}</div>
-            ${willOverwrite?`<div style="font-size:11px;color:var(--red);margin-top:4px;font-weight:600">⚠️ 將覆蓋原有資料（預設不勾選，請確認後再打勾）</div>`:''}
+            ${willOverwrite?`<div style="font-size:11px;color:var(--red);margin-top:4px;font-weight:600">⚠️ 將覆蓋原值（預設不勾選，請確認後再打勾）</div>`:''}
           </div>
         </label>`;
       }).join('')}`;
@@ -2645,13 +2674,15 @@ async function delCase(cid){
 }
 
 // ── Settings (field builder) ───────────────────────────────────────────────
-let editSectionNotes={};  // { sectionName: noteText }
+let editSectionNotes={};   // { sectionName: noteText (拍照備註) }
+let editSectionDerives={}; // { sectionName: derivedRule (AI 推導規則) }
 
 async function vSettings(pid){
   pid=pid||PID; PID=pid; VIEW='settings';
   const p=await dbGet('projects',pid);
   editFields=JSON.parse(JSON.stringify(p.fields||DEFAULT_FIELDS));
   editSectionNotes=JSON.parse(JSON.stringify(p.sectionNotes||{}));
+  editSectionDerives=JSON.parse(JSON.stringify(p.sectionDerives||{}));
   const defaultPhotoNote = p.defaultPhotoNote||'';
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
   document.getElementById('hactions').innerHTML=`
@@ -2745,6 +2776,7 @@ function renderFieldsBySection(){
     const color = editFields.find(f=>f.section===sec)?.sectionColor||'#3E7265';
     const fields = editFields.filter(f=>f.section===sec);
     const noteVal = editSectionNotes[sec]||'';
+    const derVal = editSectionDerives[sec]||'';
     return `
       <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px;transition:opacity .15s"
         draggable="true"
@@ -2754,7 +2786,6 @@ function renderFieldsBySection(){
         ondragend="onSecDragEnd(event,this)">
         <!-- 分區標題列 -->
         <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:${color}12;border-radius:9px 9px 0 0;border:1px solid ${color}28;border-bottom:none">
-          <!-- 分區拖曳把手 -->
           <span title="拖曳移動整個分區"
             style="color:${color};opacity:.5;font-size:18px;cursor:grab;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:opacity .15s;user-select:none"
             onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.5'">⠿</span>
@@ -2767,6 +2798,7 @@ function renderFieldsBySection(){
             ＋ 新增欄位
           </button>
         </div>
+
         <!-- 📋 AI 拍照備註列 -->
         <div style="padding:8px 12px 9px;background:${color}07;border-left:1px solid ${color}28;border-right:1px solid ${color}28;display:flex;align-items:flex-start;gap:8px">
           <span style="font-size:14px;margin-top:8px;flex-shrink:0;opacity:.55">📋</span>
@@ -2781,6 +2813,25 @@ function renderFieldsBySection(){
               >${escH(noteVal)}</textarea>
           </div>
         </div>
+
+        <!-- 🧠 AI 推導規則列 -->
+        <div style="padding:8px 12px 9px;background:#EEF7FF;border-left:1px solid ${color}28;border-right:1px solid ${color}28;border-top:1px solid #BFD8F4;display:flex;align-items:flex-start;gap:8px">
+          <span style="font-size:14px;margin-top:8px;flex-shrink:0;opacity:.7">🧠</span>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="font-size:10px;font-weight:700;color:#1d6fa4;opacity:.85;letter-spacing:.6px;text-transform:uppercase">AI 推導規則（自動填本區欄位）</div>
+              ${derVal?'<span style="font-size:10px;color:#1d6fa4;font-weight:700;background:rgba(29,111,164,.12);padding:2px 8px;border-radius:10px">已啟用</span>':''}
+            </div>
+            <textarea class="sec-derive-input" data-sec="${escH(sec)}"
+              placeholder="留空 = 此區欄位需手動填寫；填寫後此區會出現「✨ AI 推導」按鈕，AI 會根據其他已填欄位 + 此規則自動判定本區所有欄位的值。&#10;&#10;範例：根據「FIGO 分期」「分子分型」「組織型態」綜合判定本區所有衍生指標..."
+              oninput="editSectionDerives[this.dataset.sec]=this.value;this.parentElement.querySelector('span[style*=\\'rgba(29\\']')?.remove();if(this.value.trim()){const lbl=this.parentElement.querySelector('div[style*=\\'space-between\\']');if(lbl&&!lbl.querySelector('span')){lbl.insertAdjacentHTML('beforeend','<span style=\\'font-size:10px;color:#1d6fa4;font-weight:700;background:rgba(29,111,164,.12);padding:2px 8px;border-radius:10px\\'>已啟用</span>');}}"
+              style="width:100%;border:1.5px solid #BFD8F4;border-radius:8px;padding:8px 11px;font-size:13px;line-height:1.65;color:var(--ink);background:rgba(255,255,255,.85);resize:vertical;min-height:60px;max-height:160px;outline:none;font-family:inherit;transition:border .15s,background .15s"
+              onfocus="this.style.borderColor='#1d6fa4';this.style.background='#fff'"
+              onblur="this.style.borderColor='#BFD8F4';this.style.background='rgba(255,255,255,.85)'"
+              >${escH(derVal)}</textarea>
+          </div>
+        </div>
+
         <!-- 欄位列表 -->
         <div class="sec-fields" data-section="${escH(sec)}" style="border:1px solid ${color}28;border-radius:0 0 9px 9px;overflow:hidden">
           ${fields.map((f,i)=>fiHTML(f,i)).join('')}
@@ -2996,6 +3047,10 @@ function startRenameSection(el){
     if(newName!==oldName && editSectionNotes[oldName]!==undefined){
       editSectionNotes[newName]=editSectionNotes[oldName];
       delete editSectionNotes[oldName];
+    }
+    if(newName!==oldName && editSectionDerives[oldName]!==undefined){
+      editSectionDerives[newName]=editSectionDerives[oldName];
+      delete editSectionDerives[oldName];
     }
     document.getElementById('flist-wrap').innerHTML=renderFieldsBySection();
     initDragDrop();
@@ -3225,7 +3280,11 @@ async function saveSettings(pid){
   document.querySelectorAll('.sec-note-input').forEach(el=>{
     editSectionNotes[el.dataset.sec]=el.value;
   });
+  document.querySelectorAll('.sec-derive-input').forEach(el=>{
+    editSectionDerives[el.dataset.sec]=el.value;
+  });
   p.sectionNotes=editSectionNotes;
+  p.sectionDerives=editSectionDerives;
   p.defaultPhotoNote=document.getElementById('default-photo-note')?.value||'';
   await dbPut('projects',p);
   toast('✅ 欄位設定已儲存');

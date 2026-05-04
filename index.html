@@ -623,6 +623,7 @@ async function vProjects(){
         onmouseleave="if(!this.style.boxShadow.includes('--sage')){this.style.boxShadow='var(--shadow-card)';}this.style.transform=''">
         ${selectMode?`<div style="position:absolute;top:14px;left:14px;width:22px;height:22px;border-radius:50%;border:2.5px solid ${isSel?'var(--sage)':'var(--border)'};background:${isSel?'var(--sage)':'#fff'};display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;font-weight:700">${isSel?'✓':''}</div>`:`
         <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+          <button class="btn-icon" onclick="event.stopPropagation();duplicateGroup('${g.id}')" title="複製整個群組（含內部 Project 結構）">📋</button>
           <button class="btn-icon" onclick="event.stopPropagation();showTopicModal('${g.id}')" title="編輯群組">✏️</button>
           <button class="btn-icon" onclick="event.stopPropagation();delTopic('${g.id}')" title="解散群組">🗑️</button>
         </div>`}
@@ -710,6 +711,7 @@ async function vGroup(){
         <div style="font-size:14px;color:rgba(255,255,255,.7);margin-top:6px">${inGroup.length} 個 Project</div>
       </div>
       <div style="display:flex;gap:8px;position:relative;z-index:1">
+        <button class="btn btn-ghost" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.3)" onclick="duplicateGroup('${GID}')">📋 複製群組</button>
         <button class="btn btn-ghost" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.3)" onclick="showTopicModal('${GID}')">✏️ 編輯</button>
       </div>
     </div>
@@ -882,6 +884,41 @@ async function duplicateProject(pid){
   await dbPut('projects',newProj);
   toast(`✅ 已複製「${src.name}」`);
   if(VIEW==='group') vGroup(); else vProjects();
+}
+
+async function duplicateGroup(gid){
+  const src=await dbGet('topics',gid);
+  if(!src) return;
+  const allProjs=await dbAll('projects');
+  const inGroup=allProjs.filter(p=>p.topicId===gid);
+  if(!confirm(`複製整個群組「${src.name}」？\n\n• 將建立新群組「${src.name} （副本）」\n• 群組內的 ${inGroup.length} 個 Project 結構會一起複製\n• 病例資料不會被複製（副本是空白病例的範本）`)) return;
+
+  // 1. 複製群組
+  const newGroup={
+    ...src,
+    id:uid(),
+    name:src.name+' （副本）',
+    createdAt:Date.now()
+  };
+  await dbPut('topics',newGroup);
+
+  // 2. 複製群組內的 projects（不複製病例）
+  for(const p of inGroup){
+    const newProj={
+      ...p,
+      id:uid(),
+      name:p.name,  // 群組內 project 名稱保持原樣，靠群組區分
+      topicId:newGroup.id,
+      createdAt:Date.now()
+    };
+    if(newProj.fields) newProj.fields=newProj.fields.map(f=>({...f,id:uid()}));
+    await dbPut('projects',newProj);
+  }
+
+  toast(`✅ 已複製群組「${src.name}」（含 ${inGroup.length} 個 Project）`);
+  // 切換到新群組
+  GID=newGroup.id;
+  if(VIEW==='group') vGroup(); else { VIEW='group'; render(); }
 }
 
 // ── Project (list + table) ─────────────────────────────────────────────────

@@ -1388,8 +1388,16 @@ async function vCase(){
 
       ${(()=>{
         // 彙整所有備註，去重後顯示
+        // 過濾掉明確標示「不需拍照」「不用拍」的分區
         const allNotes=Object.entries(sectionNotes)
-          .filter(([sec,note])=>note&&note.trim()&&secs[sec])
+          .filter(([sec,note])=>{
+            if(!note||!note.trim()) return false;
+            if(!secs[sec]) return false;
+            const lower=note.replace(/\s+/g,'').toLowerCase();
+            // 過濾掉明確標註不需拍照的
+            if(lower.includes('不需拍照')||lower.includes('不用拍')||lower.includes('無需拍照')||lower.includes('不必拍')) return false;
+            return true;
+          })
           .map(([sec,note])=>({sec,note:note.trim(),color:secs[sec]?.color||'#3E7265'}));
         const seen=new Set();
         const unique=allNotes.filter(({note})=>{
@@ -1406,27 +1414,36 @@ async function vCase(){
             style="background:var(--ink);padding:13px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
             <span style="font-size:18px">📷</span>
             <div style="flex:1">
-              <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">拍照清單 — 請先備齊以下頁面的截圖</div>
-              <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:2px">依序拍完後，再至各分區點「AI 掃此區」上傳</div>
+              <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">拍照清單 — 共 ${unique.length} 個分區需拍照</div>
+              <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:2px">內容由「欄位設定 → 各分區 → AI 判讀備註」自動匯總</div>
             </div>
+            <button onclick="event.stopPropagation();vSettings('${p.id}')"
+              style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:rgba(240,235,225,.85);border-radius:7px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap"
+              onmouseenter="this.style.background='rgba(255,255,255,.18)'" onmouseleave="this.style.background='rgba(255,255,255,.1)'"
+              title="到欄位設定編輯各分區的拍照備註">✏️ 編輯</button>
             <span id="photo-list-icon" style="font-size:13px;color:rgba(240,235,225,.45);transition:transform .2s;display:inline-block">▲</span>
           </div>
 
           <!-- 收合的清單內容（預設展開） -->
           <div id="photo-list-body" style="background:var(--card)">
-            ${unique.map(({sec,note,color},i)=>`
+            ${unique.length?unique.map(({sec,note,color},i)=>`
               <div style="display:flex;gap:12px;align-items:flex-start;padding:13px 18px;border-bottom:1px solid var(--border2)">
-                <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;margin-top:5px"></div>
+                <div style="display:flex;align-items:center;justify-content:center;flex-shrink:0;width:24px;height:24px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:800;font-family:'DM Mono',monospace">${i+1}</div>
                 <div style="flex:1">
                   <div style="font-size:11px;font-weight:700;color:${color};letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">${escH(sec)}</div>
                   <div style="font-size:13px;color:var(--ink2);line-height:1.7;white-space:pre-wrap;word-break:break-word">${escH(note)}</div>
                 </div>
-              </div>`).join('')}
+              </div>`).join(''):`
+              <div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">
+                <div style="font-size:24px;opacity:.4;margin-bottom:8px">📋</div>
+                尚未設定任何拍照備註<br>
+                <button onclick="vSettings('${p.id}')" style="margin-top:10px;padding:6px 14px;background:var(--sage);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">前往欄位設定</button>
+              </div>`}
           </div>
 
           <!-- 補充備註：永遠顯示，不受收合影響 -->
           <div style="padding:13px 18px;background:var(--card);border-top:1px solid var(--border2)">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px">📝 補充備註</div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px">📝 補充備註（本案專用）</div>
             <textarea id="photo-note-input"
               placeholder="可在此補充拍照注意事項、特殊說明或待辦事項..."
               oninput="formData['__photoNote']=this.value;dirty=true;document.getElementById('savebar').classList.add('on');autoResizeTA(this)"
@@ -2935,14 +2952,15 @@ function renderFieldsBySection(){
     const derVal = editSectionDerives[sec]||'';
     return `
       <div class="sec-group" data-section="${escH(sec)}" style="margin-bottom:16px;transition:opacity .15s"
-        draggable="true"
+        draggable="false"
         ondragstart="onSecDragStart(event,this)"
         ondragover="onSecDragOver(event,this)"
         ondrop="onSecDrop(event,this)"
         ondragend="onSecDragEnd(event,this)">
         <!-- 分區標題列 -->
         <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:${color}12;border-radius:9px 9px 0 0;border:1px solid ${color}28;border-bottom:none">
-          <span title="拖曳移動整個分區"
+          <span title="按住拖曳移動整個分區"
+            onmousedown="this.closest('.sec-group').setAttribute('draggable','true')"
             style="color:${color};opacity:.5;font-size:18px;cursor:grab;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:opacity .15s;user-select:none"
             onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.5'">⠿</span>
           <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
@@ -3060,6 +3078,7 @@ function onSecDrop(e,el){
 function onSecDragEnd(e,el){
   document.querySelectorAll('.sec-group').forEach(g=>{
     g.style.opacity='';g.style.boxShadow='';
+    g.setAttribute('draggable','false');
   });
   secDragSrc=null;
 }
@@ -3166,10 +3185,13 @@ function commitQAdd(sectionName, color){
 }
 
 function fiHTML(f){
-  return `<div class="fi" id="fi-${f.id}" data-fid="${f.id}" draggable="true"
-    style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border-bottom:1px solid var(--border2);cursor:default;transition:background .12s;user-select:none"
+  return `<div class="fi" id="fi-${f.id}" data-fid="${f.id}" draggable="false"
+    style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border-bottom:1px solid var(--border2);cursor:default;transition:background .12s"
     ondragstart="onDragStart(event,this)" ondragover="onDragOver(event,this)" ondrop="onDrop(event,this)" ondragend="onDragEnd(event)">
-    <span class="drag-handle" title="拖曳排序" style="color:var(--border);font-size:18px;cursor:grab;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:color .15s" onmouseenter="this.style.color='var(--muted)'" onmouseleave="this.style.color='var(--border)'">⠿</span>
+    <span class="drag-handle" title="按住拖曳排序"
+      onmousedown="this.closest('.fi').setAttribute('draggable','true')"
+      style="color:var(--border);font-size:18px;cursor:grab;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:color .15s;user-select:none"
+      onmouseenter="this.style.color='var(--muted)'" onmouseleave="this.style.color='var(--border)'">⠿</span>
     <div style="flex:1;min-width:0">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="fi-label" style="font-size:14px;font-weight:600;color:var(--ink)">${escH(f.label)}</span>
@@ -3392,7 +3414,10 @@ function onDrop(e,el){
   initDragDrop();
 }
 function onDragEnd(e){
-  document.querySelectorAll('.fi').forEach(f=>{f.style.opacity='';f.style.boxShadow='';});
+  document.querySelectorAll('.fi').forEach(f=>{
+    f.style.opacity='';f.style.boxShadow='';
+    f.setAttribute('draggable','false');
+  });
   dragSrcId=null; dragOverId=null;
 }
 function initDragDrop(){
@@ -4196,6 +4221,13 @@ function autoResizeTA(el){el.style.height='auto';el.style.height=el.scrollHeight
 
 // Cmd+S
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();if(VIEW==='case'&&dirty)saveCase();}});
+
+// 全域 mouseup：未真正拖曳就放開時也要重設 draggable，否則下次無法選取文字
+document.addEventListener('mouseup',()=>{
+  document.querySelectorAll('.sec-group[draggable="true"], .fi[draggable="true"]').forEach(el=>{
+    el.setAttribute('draggable','false');
+  });
+});
 
 // ── 備份提醒系統 ────────────────────────────────────────────────────────────
 const BACKUP_KEY = 'lastBackupReminder';

@@ -1442,16 +1442,44 @@ async function vCase(){
           </div>
 
           <!-- 補充備註：永遠顯示，不受收合影響 -->
-          <div style="padding:13px 18px;background:var(--card);border-top:1px solid var(--border2)">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:7px">📝 補充備註（本案專用）</div>
-            <textarea id="photo-note-input"
-              placeholder="可在此補充拍照注意事項、特殊說明或待辦事項..."
-              oninput="formData['__photoNote']=this.value;dirty=true;document.getElementById('savebar').classList.add('on');autoResizeTA(this)"
-              style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 13px;font-size:14px;line-height:1.7;color:var(--ink);background:var(--cream);resize:none;overflow:hidden;min-height:72px;outline:none;font-family:inherit;transition:border .18s,background .18s;white-space:pre-wrap;word-break:break-word"
-              onfocus="this.style.borderColor='var(--sage)';this.style.background='#fff'"
-              onblur="this.style.borderColor='var(--border)';this.style.background='var(--cream)'"
-              >${escH(casePhotoNote)}</textarea>
-          </div>
+          ${(()=>{
+            const defaultNote=p.defaultPhotoNote||'';
+            const noteVal=formData['__photoNote'];
+            const customFlag=formData['__photoNoteCustom'];
+            // 判斷自訂 / 連動模式
+            // - customFlag===true → 明確自訂
+            // - 沒 flag 但 noteVal 跟 default 不同且非空 → 視為已自訂（保護舊資料）
+            // - 其他 → 連動模式
+            let isCustom;
+            if(customFlag===true) isCustom=true;
+            else if(noteVal!==undefined && noteVal!=='' && noteVal!==defaultNote) isCustom=true;
+            else isCustom=false;
+            const showVal = isCustom ? (noteVal||'') : defaultNote;
+            return `
+            <div style="padding:13px 18px;background:var(--card);border-top:1px solid var(--border2)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+                <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase">📝 補充備註</div>
+                <div id="photo-note-status" style="display:flex;align-items:center;gap:6px">
+                  ${isCustom?`
+                    <span style="font-size:11px;font-weight:700;color:var(--gold);background:var(--gold-light);padding:2px 9px;border-radius:10px;border:1px solid #E0D0A8">✍️ 已自訂</span>
+                    <button onclick="resetPhotoNoteToDefault()" title="清除自訂內容，改為連動預設文字"
+                      style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:1px solid var(--sage);border-radius:10px;padding:2px 10px;cursor:pointer;transition:all .15s"
+                      onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background='none'">↺ 還原連動</button>
+                  `:`
+                    <span title="此備註會跟著「拍照清單補充備註預設文字」即時更新" style="font-size:11px;font-weight:700;color:var(--sage);background:var(--sage-light);padding:2px 9px;border-radius:10px;border:1px solid #C5E0D8">🔗 連動預設值</span>
+                  `}
+                </div>
+              </div>
+              <textarea id="photo-note-input"
+                placeholder="${defaultNote?'（目前顯示預設文字 — 一旦輸入即轉為自訂）':'可在此補充拍照注意事項、特殊說明或待辦事項...'}"
+                oninput="markPhotoNoteCustom(this)"
+                style="width:100%;border:1.5px solid ${isCustom?'var(--gold)':'var(--border)'};border-radius:9px;padding:10px 13px;font-size:14px;line-height:1.7;color:${isCustom?'var(--ink)':'var(--ink2)'};background:${isCustom?'#fff':'var(--cream)'};resize:none;overflow:hidden;min-height:72px;outline:none;font-family:inherit;transition:border .18s,background .18s;white-space:pre-wrap;word-break:break-word"
+                onfocus="this.style.borderColor='var(--sage)';this.style.background='#fff'"
+                onblur="this.style.borderColor='${isCustom?'var(--gold)':'var(--border)'}';this.style.background='${isCustom?'#fff':'var(--cream)'}'"
+                >${escH(showVal)}</textarea>
+              ${!isCustom&&defaultNote?`<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5">💡 此區內容由「欄位設定 → 拍照清單補充備註預設文字」即時連動。修改設定後本欄位會自動更新。一旦您在此輸入文字即轉為自訂模式。</div>`:''}
+            </div>`;
+          })()}
 
         </div>`;
       })()}
@@ -2644,6 +2672,41 @@ async function saveCase(){
   toast('✅ 已儲存');
 }
 
+// ── 拍照清單補充備註：連動 / 自訂模式切換 ──────────────────────────────
+function markPhotoNoteCustom(el){
+  formData['__photoNote']=el.value;
+  formData['__photoNoteCustom']=true;
+  dirty=true;
+  document.getElementById('savebar').classList.add('on');
+  autoResizeTA(el);
+  // 動態切換右上角徽章（不重渲染整頁）
+  const status=document.getElementById('photo-note-status');
+  if(status && !status.querySelector('button')){
+    // 第一次從連動 → 自訂，更新 UI
+    status.innerHTML=`
+      <span style="font-size:11px;font-weight:700;color:var(--gold);background:var(--gold-light);padding:2px 9px;border-radius:10px;border:1px solid #E0D0A8">✍️ 已自訂</span>
+      <button onclick="resetPhotoNoteToDefault()" title="清除自訂內容，改為連動預設文字"
+        style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:1px solid var(--sage);border-radius:10px;padding:2px 10px;cursor:pointer">↺ 還原連動</button>`;
+    el.style.borderColor='var(--gold)';
+    el.style.background='#fff';
+    el.style.color='var(--ink)';
+    // 移除「💡 連動說明」提示
+    const tip=el.parentElement.querySelector('div[style*="連動"]');
+    if(tip) tip.remove();
+  }
+}
+
+async function resetPhotoNoteToDefault(){
+  if(!confirm('確定還原為預設文字？\n（本案的自訂備註內容將會清除，並改為跟著「拍照清單補充備註預設文字」即時連動）')) return;
+  delete formData['__photoNote'];
+  delete formData['__photoNoteCustom'];
+  dirty=true;
+  document.getElementById('savebar').classList.add('on');
+  toast('✅ 已切回連動模式');
+  // 重新渲染病例頁面以更新顯示
+  vCase();
+}
+
 // ── 套用預設值（單一病例）──────────────────────────────────────────────
 async function applyDefaultsToCase(){
   const p=await dbGet('projects',PID);
@@ -3457,7 +3520,6 @@ function removeField(fid){
 
 async function saveSettings(pid){
   const p=await dbGet('projects',pid);
-  const oldDefaultNote=p.defaultPhotoNote||'';
   p.fields=editFields;
   document.querySelectorAll('.sec-note-input').forEach(el=>{
     editSectionNotes[el.dataset.sec]=el.value;
@@ -3467,164 +3529,10 @@ async function saveSettings(pid){
   });
   p.sectionNotes=editSectionNotes;
   p.sectionDerives=editSectionDerives;
-  const newDefaultNote=document.getElementById('default-photo-note')?.value||'';
-  p.defaultPhotoNote=newDefaultNote;
+  p.defaultPhotoNote=document.getElementById('default-photo-note')?.value||'';
   await dbPut('projects',p);
-  toast('✅ 欄位設定已儲存');
-
-  // 若拍照清單預設備註有變更 → 詢問是否套用到既有病例
-  if(oldDefaultNote.trim()!==newDefaultNote.trim()){
-    const cases=await dbIdx('cases','pid',pid);
-    if(cases.length){
-      // 區分已有自訂備註 vs 空白 vs 仍是舊預設值的病例
-      const blank=[], sameAsOld=[], custom=[];
-      cases.forEach(c=>{
-        const cur=(c.data?.['__photoNote']||'').trim();
-        if(!cur) blank.push(c);
-        else if(cur===oldDefaultNote.trim()) sameAsOld.push(c);
-        else custom.push(c);
-      });
-      showApplyDefaultNoteChoice({pid, oldNote:oldDefaultNote, newNote:newDefaultNote, blank, sameAsOld, custom});
-      return;
-    }
-  }
+  toast('✅ 設定已儲存（連動的病例會自動更新顯示）');
   goProject(pid);
-}
-
-// 詢問如何套用新預設備註到既有病例
-function showApplyDefaultNoteChoice({pid, oldNote, newNote, blank, sameAsOld, custom}){
-  const total=blank.length+sameAsOld.length+custom.length;
-  document.body.insertAdjacentHTML('beforeend',`
-    <div class="overlay" id="apply-note-modal" onclick="if(event.target.id==='apply-note-modal')document.getElementById('apply-note-modal').remove()">
-      <div class="modal" style="max-width:560px;max-height:90vh;display:flex;flex-direction:column">
-        <div class="modal-hd">
-          <div>
-            <div class="modal-title">📝 套用新版拍照清單備註？</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:3px">「拍照清單補充備註（預設文字）」已變更，是否套用到既有 ${total} 筆病例？</div>
-          </div>
-          <button class="btn-icon" onclick="document.getElementById('apply-note-modal').remove();goProject('${pid}')">✕</button>
-        </div>
-        <div class="modal-bd" style="overflow-y:auto;flex:1">
-
-          <!-- 變更內容預覽 -->
-          <div style="background:var(--cream);border-radius:10px;padding:12px 14px;margin-bottom:14px">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px">📜 變更內容</div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:4px">舊版：</div>
-            <div style="background:#fff;padding:8px 11px;border-radius:7px;font-size:12px;color:var(--muted);line-height:1.6;white-space:pre-wrap;border-left:3px solid var(--border);max-height:80px;overflow-y:auto">${escH(oldNote||'（空白）')}</div>
-            <div style="font-size:12px;color:var(--muted);margin:8px 0 4px">新版：</div>
-            <div style="background:#fff;padding:8px 11px;border-radius:7px;font-size:12px;color:var(--ink2);line-height:1.6;white-space:pre-wrap;border-left:3px solid var(--sage);max-height:80px;overflow-y:auto">${escH(newNote||'（空白）')}</div>
-          </div>
-
-          <!-- 病例分類統計 -->
-          <div style="background:var(--card);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px">📊 病例分類</div>
-            <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
-              <div>📭 補充備註空白：<strong style="color:var(--sage)">${blank.length}</strong> 筆</div>
-              <div>📋 仍是舊預設值（沒被改過）：<strong style="color:var(--gold)">${sameAsOld.length}</strong> 筆</div>
-              <div>✍️ 已自訂備註：<strong style="color:var(--red)">${custom.length}</strong> 筆</div>
-            </div>
-          </div>
-
-          <!-- 三個選項 -->
-          <div style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px">選擇套用範圍：</div>
-
-          <label class="apply-note-opt" data-mode="safe" onclick="pickApplyNoteMode(this)"
-            style="display:block;border:2px solid var(--sage);border-radius:11px;padding:13px 15px;margin-bottom:9px;cursor:pointer;background:var(--sage-light);transition:all .15s">
-            <div style="display:flex;align-items:flex-start;gap:11px">
-              <div class="apply-note-radio" style="width:18px;height:18px;border-radius:50%;border:2.5px solid var(--sage);background:var(--sage);flex-shrink:0;margin-top:2px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700">✓</div>
-              <div>
-                <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:2px">🛡️ 安全模式（推薦）</div>
-                <div style="font-size:12px;color:var(--muted);line-height:1.6">只更新「空白」+「仍是舊預設值」共 <strong style="color:var(--sage)">${blank.length+sameAsOld.length}</strong> 筆。<br>已自訂備註的 ${custom.length} 筆保留不動。</div>
-              </div>
-            </div>
-          </label>
-
-          <label class="apply-note-opt" data-mode="blank-only" onclick="pickApplyNoteMode(this)"
-            style="display:block;border:1.5px solid var(--border);border-radius:11px;padding:13px 15px;margin-bottom:9px;cursor:pointer;background:var(--card);transition:all .15s">
-            <div style="display:flex;align-items:flex-start;gap:11px">
-              <div class="apply-note-radio" style="width:18px;height:18px;border-radius:50%;border:2.5px solid var(--border);background:#fff;flex-shrink:0;margin-top:2px"></div>
-              <div>
-                <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:2px">📭 只填空白的</div>
-                <div style="font-size:12px;color:var(--muted);line-height:1.6">只更新 <strong>${blank.length}</strong> 筆「補充備註是空白」的病例。</div>
-              </div>
-            </div>
-          </label>
-
-          <label class="apply-note-opt" data-mode="all" onclick="pickApplyNoteMode(this)"
-            style="display:block;border:1.5px solid var(--border);border-radius:11px;padding:13px 15px;margin-bottom:9px;cursor:pointer;background:var(--card);transition:all .15s">
-            <div style="display:flex;align-items:flex-start;gap:11px">
-              <div class="apply-note-radio" style="width:18px;height:18px;border-radius:50%;border:2.5px solid var(--border);background:#fff;flex-shrink:0;margin-top:2px"></div>
-              <div>
-                <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:2px;color:var(--red)">⚠️ 全部覆蓋（${total} 筆）</div>
-                <div style="font-size:12px;color:var(--muted);line-height:1.6">所有病例都改用新版預設文字，<strong style="color:var(--red)">會覆蓋自訂內容</strong>，請小心使用。</div>
-              </div>
-            </div>
-          </label>
-
-          <label class="apply-note-opt" data-mode="skip" onclick="pickApplyNoteMode(this)"
-            style="display:block;border:1.5px solid var(--border);border-radius:11px;padding:13px 15px;cursor:pointer;background:var(--card);transition:all .15s">
-            <div style="display:flex;align-items:flex-start;gap:11px">
-              <div class="apply-note-radio" style="width:18px;height:18px;border-radius:50%;border:2.5px solid var(--border);background:#fff;flex-shrink:0;margin-top:2px"></div>
-              <div>
-                <div style="font-size:14px;font-weight:700;color:var(--ink);margin-bottom:2px">🚫 不要套用（只影響將來新增的病例）</div>
-                <div style="font-size:12px;color:var(--muted);line-height:1.6">既有病例完全不動，僅日後「＋ 新增病例」時帶入新版預設文字。</div>
-              </div>
-            </div>
-          </label>
-
-        </div>
-        <div class="modal-ft">
-          <button class="btn btn-outline" onclick="document.getElementById('apply-note-modal').remove();goProject('${pid}')">取消</button>
-          <button class="btn btn-primary" id="apply-note-confirm">確認套用</button>
-        </div>
-      </div>
-    </div>`);
-
-  // 預設選「安全模式」
-  document.querySelector('.apply-note-opt[data-mode="safe"]')?.classList.add('sel');
-
-  document.getElementById('apply-note-confirm').onclick=async()=>{
-    const mode=document.querySelector('.apply-note-opt.sel')?.dataset.mode||'safe';
-    let updated=0;
-    if(mode==='safe'){
-      for(const c of [...blank, ...sameAsOld]){
-        c.data['__photoNote']=newNote;
-        c.updatedAt=Date.now();
-        await dbPut('cases',c); updated++;
-      }
-    } else if(mode==='blank-only'){
-      for(const c of blank){
-        c.data['__photoNote']=newNote;
-        c.updatedAt=Date.now();
-        await dbPut('cases',c); updated++;
-      }
-    } else if(mode==='all'){
-      for(const c of [...blank, ...sameAsOld, ...custom]){
-        c.data['__photoNote']=newNote;
-        c.updatedAt=Date.now();
-        await dbPut('cases',c); updated++;
-      }
-    }
-    document.getElementById('apply-note-modal').remove();
-    if(updated>0) toast(`✅ 已更新 ${updated} 筆病例的補充備註`);
-    else toast('ℹ️ 既有病例未變更');
-    goProject(pid);
-  };
-}
-
-function pickApplyNoteMode(el){
-  document.querySelectorAll('.apply-note-opt').forEach(o=>{
-    o.classList.remove('sel');
-    o.style.border='1.5px solid var(--border)';
-    o.style.background='var(--card)';
-    const r=o.querySelector('.apply-note-radio');
-    if(r){r.style.borderColor='var(--border)';r.style.background='#fff';r.textContent='';r.style.color='';}
-  });
-  el.classList.add('sel');
-  el.style.border='2px solid var(--sage)';
-  el.style.background='var(--sage-light)';
-  const r=el.querySelector('.apply-note-radio');
-  if(r){r.style.borderColor='var(--sage)';r.style.background='var(--sage)';r.style.color='#fff';r.textContent='✓';r.style.display='flex';r.style.alignItems='center';r.style.justifyContent='center';r.style.fontSize='10px';r.style.fontWeight='700';}
 }
 
 // ── Group Modal ────────────────────────────────────────────────────────────
@@ -3782,10 +3690,9 @@ async function delProject(pid){
 // ── New case ───────────────────────────────────────────────────────────────
 async function newCase(pid){
   const cs=await dbIdx('cases','pid',pid);
-  const p=await dbGet('projects',pid);
-  const defaultNote=p.defaultPhotoNote||'';
-  const data=defaultNote?{'__photoNote':defaultNote}:{};
-  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data,createdAt:Date.now()};
+  // 不預先複製 defaultPhotoNote 進 __photoNote，讓新病例預設處於「連動模式」
+  // 一旦使用者修改 textarea 才會轉為自訂模式並儲存內容
+  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data:{},createdAt:Date.now()};
   await dbPut('cases',c);goCase(c.id,pid);
 }
 
@@ -4087,7 +3994,7 @@ async function executePasteModal(){
         data:{[pasteColFid]:val},
         createdAt:Date.now()
       };
-      if(p.defaultPhotoNote) newC.data['__photoNote']=p.defaultPhotoNote;
+      // 不預載 __photoNote，新病例預設為連動模式
       await dbPut('cases',newC);
       created++;
     }

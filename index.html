@@ -1138,6 +1138,8 @@ async function vProject(){
     </div>
     <div id="tc-list">${buildList(cases,fields,listCols,p)}</div>
     <div id="tc-table" style="display:none">${buildTable(cases,fields,p)}</div>`;
+  // 初次渲染列表（預設 tab）
+  setTimeout(()=>renderVlistRows(),20);
 }
 
 // 按分區分組排序欄位，確保與欄位設定頁視覺順序一致
@@ -1150,24 +1152,98 @@ function getOrderedFields(fields){
   return result;
 }
 
+// 病例列表的虛擬滾動狀態
+let vsList = null; // {allCases, cases, cols, p, rowHeight}
+
 function buildList(cases,fields,cols,p){
   if(!cases.length) return `<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">尚無病例資料</div><div style="font-size:13px">點選右上角「新增病例」開始建立</div></div>`;
+  const ROW_H = 53;
+  vsList = {allCases:cases, cases:cases, cols, p, rowHeight:ROW_H, colSpan:cols.length+3};
   return `
     <div class="tbar">
-      <div class="sw"><span class="si">🔍</span><input class="finput" id="search" placeholder="搜尋病例..." oninput="filterRows()"></div>
+      <div class="sw"><span class="si">🔍</span><input class="finput" id="search" placeholder="搜尋病例（共 ${cases.length} 筆）..." oninput="filterRows()"></div>
+      <span style="font-size:13px;color:var(--muted)" id="search-count">${cases.length} 筆</span>
     </div>
-    <div class="twrap"><table>
-      <thead><tr><th>#</th>${cols.map(f=>`<th>${escH(f.label)}</th>`).join('')}<th>建立日期</th><th></th></tr></thead>
-      <tbody id="tbody">
-        ${cases.map((c,i)=>`
-          <tr onclick="goCase('${c.id}','${p.id}')">
-            <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${String(i+1).padStart(3,'0')}</td>
-            ${cols.map((f,ci)=>`<td class="${ci===0?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
-            <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
-            <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button></td>
-          </tr>`).join('')}
-      </tbody>
-    </table></div>`;
+    <div class="vscroll-wrap" id="vlist-wrap" onscroll="onVlistScroll()" style="overflow:auto">
+      <table id="list-table" style="min-width:100%">
+        <thead><tr>
+          <th>#</th>
+          ${cols.map(f=>`<th>${escH(f.label)}</th>`).join('')}
+          <th>建立日期</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="vlist-tbody"></tbody>
+      </table>
+    </div>`;
+}
+
+function renderVlistRows(){
+  if(!vsList) return;
+  const wrap=document.getElementById('vlist-wrap');
+  const tbody=document.getElementById('vlist-tbody');
+  if(!wrap||!tbody) return;
+
+  const {cases, cols, p, rowHeight, colSpan} = vsList;
+  const scrollTop=wrap.scrollTop;
+  const viewH=wrap.clientHeight||500;
+  const BUFFER=8;
+  const startIdx=Math.max(0, Math.floor(scrollTop/rowHeight) - BUFFER);
+  const endIdx=Math.min(cases.length, Math.ceil((scrollTop+viewH)/rowHeight) + BUFFER);
+
+  const topH = startIdx*rowHeight;
+  const bottomH = (cases.length - endIdx)*rowHeight;
+
+  let html='';
+  if(topH>0) html+=`<tr class="vscroll-spacer-row" style="height:${topH}px"><td colspan="${colSpan}"></td></tr>`;
+  for(let i=startIdx;i<endIdx;i++){
+    const c=cases[i];
+    if(!c) continue;
+    html+=`<tr onclick="goCase('${c.id}','${p.id}')">
+      <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${c._origIdx!==undefined?String(c._origIdx+1).padStart(3,'0'):String(i+1).padStart(3,'0')}</td>
+      ${cols.map((f,ci)=>`<td class="${ci===0?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
+      <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button></td>
+    </tr>`;
+  }
+  if(bottomH>0) html+=`<tr class="vscroll-spacer-row" style="height:${bottomH}px"><td colspan="${colSpan}"></td></tr>`;
+  tbody.innerHTML=html;
+}
+
+let vsListRAF=null;
+function onVlistScroll(){
+  if(vsListRAF) return;
+  vsListRAF=requestAnimationFrame(()=>{
+    vsListRAF=null;
+    renderVlistRows();
+  });
+}
+
+let filterTimeout=null;
+function filterRows(){
+  // 用 debounce 避免每打一個字就重算
+  if(filterTimeout) clearTimeout(filterTimeout);
+  filterTimeout=setTimeout(()=>{
+    if(!vsList) return;
+    const q=(document.getElementById('search')?.value||'').toLowerCase().trim();
+    if(!q){
+      vsList.cases=vsList.allCases;
+    } else {
+      // 在所有欄位內容中搜尋
+      vsList.cases=vsList.allCases.filter(c=>{
+        for(const k in (c.data||{})){
+          const v=c.data[k];
+          if(v && String(v).toLowerCase().includes(q)) return true;
+        }
+        if(c.caseNum && c.caseNum.toLowerCase().includes(q)) return true;
+        return false;
+      });
+    }
+    const wrap=document.getElementById('vlist-wrap');
+    if(wrap) wrap.scrollTop=0;
+    const cnt=document.getElementById('search-count');
+    if(cnt) cnt.textContent=`${vsList.cases.length} 筆${q?' / 共 '+vsList.allCases.length+' 筆':''}`;
+    renderVlistRows();
+  }, 120);
 }
 
 // 虛擬滾動狀態
@@ -1263,9 +1339,11 @@ function switchTab(t){
   document.getElementById('t-table').classList.toggle('active',t==='table');
   document.getElementById('tc-list').style.display=t==='list'?'':'none';
   document.getElementById('tc-table').style.display=t==='table'?'':'none';
-  // 切到表格時觸發虛擬滾動初次渲染
+  // 切換 tab 時觸發對應虛擬滾動初次渲染
   if(t==='table'){
     setTimeout(()=>renderVscrollRows(),20);
+  } else {
+    setTimeout(()=>renderVlistRows(),20);
   }
 }
 
@@ -1273,10 +1351,6 @@ function switchTab(t){
 function rerenderSummaryTable(cases, fields, p){
   document.getElementById('tc-table').innerHTML=buildTable(cases,fields,p);
   setTimeout(()=>renderVscrollRows(),20);
-}
-function filterRows(){
-  const q=(document.getElementById('search')?.value||'').toLowerCase();
-  document.querySelectorAll('#tbody tr').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'':'none');
 }
 
 // ── Case form ──────────────────────────────────────────────────────────────

@@ -2707,6 +2707,48 @@ async function resetPhotoNoteToDefault(){
   vCase();
 }
 
+// ── 批次：將所有病例的補充備註設為連動模式 ────────────────────────────
+async function resetAllPhotoNotesToLink(pid){
+  const cases=await dbIdx('cases','pid',pid);
+  if(!cases.length){
+    toast('此 Project 尚無病例');
+    return;
+  }
+  // 統計現況
+  let customCount=0, linkedCount=0;
+  cases.forEach(c=>{
+    const flag=c.data?.['__photoNoteCustom'];
+    const val=c.data?.['__photoNote'];
+    if(flag===true) customCount++;
+    else if(val!==undefined && val!=='') customCount++; // 舊資料也視為自訂
+    else linkedCount++;
+  });
+
+  const msg=`即將處理 ${cases.length} 筆病例：
+
+✍️ 已自訂備註的：${customCount} 筆 → 自訂內容會被清除
+🔗 已連動 / 空白的：${linkedCount} 筆 → 不變
+
+完成後，所有病例的補充備註都會「即時連動」最新預設文字。
+
+確定執行？此動作無法復原（建議先匯出 JSON 備份）。`;
+
+  if(!confirm(msg)) return;
+
+  let updated=0;
+  for(const c of cases){
+    const had = c.data['__photoNote']!==undefined || c.data['__photoNoteCustom']!==undefined;
+    if(had){
+      delete c.data['__photoNote'];
+      delete c.data['__photoNoteCustom'];
+      c.updatedAt=Date.now();
+      await dbPut('cases',c);
+      updated++;
+    }
+  }
+  toast(`✅ 完成！${updated} 筆病例已設為連動模式`);
+}
+
 // ── 套用預設值（單一病例）──────────────────────────────────────────────
 async function applyDefaultsToCase(){
   const p=await dbGet('projects',PID);
@@ -2937,14 +2979,28 @@ async function vSettings(pid){
         </div>
         <div class="card-body">
           <div style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.6">
-            每次新增病例時，「拍照清單」下方的「補充備註」欄位會自動帶入以下文字，統一提醒拍照流程或注意事項。
+            每次新增病例時，「拍照清單」下方的「補充備註」欄位會自動帶入以下文字。<br>
+            <strong style="color:var(--sage)">🔗 連動模式</strong>下的病例會自動顯示最新預設文字；改過的病例會保留為自訂模式。
           </div>
           <textarea class="ftextarea" id="default-photo-note"
             placeholder="例：請依序拍攝：1. 掛號頁面 2. 就診記錄 3. 處方籤 4. 檢驗報告&#10;拍攝時請確認文字清晰，避免反光..."
             oninput="autoResizeTA(this)"
             style="min-height:100px"
             >${escH(defaultPhotoNote)}</textarea>
-          <div style="font-size:12px;color:var(--muted);margin-top:6px">若留空，補充備註預設為空白，可在各病例中自由輸入</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px;margin-bottom:14px">若留空，補充備註預設為空白</div>
+
+          <!-- 批次連動工具 -->
+          <div style="background:var(--sage-light);border:1px solid #C5E0D8;border-radius:10px;padding:12px 14px">
+            <div style="font-size:12px;color:var(--sage);font-weight:700;margin-bottom:6px;letter-spacing:.3px">🔗 批次設為連動模式</div>
+            <div style="font-size:12px;color:var(--ink2);line-height:1.6;margin-bottom:10px">
+              將「既有所有病例」的補充備註全部改成「連動模式」，從此修改上方預設文字時，所有病例的補充備註都會即時同步顯示。<br>
+              <span style="color:var(--red);font-weight:600">⚠️ 已自訂的內容會被清除</span>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="resetAllPhotoNotesToLink('${pid}')"
+              style="border-color:var(--sage);color:var(--sage)">
+              🔗 將所有病例設為連動模式
+            </button>
+          </div>
         </div>
       </div>
 

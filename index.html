@@ -602,6 +602,10 @@ async function vProjects(){
   document.getElementById('hbreadcrumb').textContent='';
   const selectBar = selectMode ? `
     <button class="btn btn-ghost" onclick="exitSelectMode()">取消</button>
+    ${selectedPids.size>0?`
+      <button class="btn btn-ghost btn-sm" onclick="batchMoveToGroup()">📁 加入群組 (${selectedPids.size})</button>
+      <button class="btn btn-ghost btn-sm" onclick="batchDuplicate()">📋 批次複製 (${selectedPids.size})</button>
+    `:''}
     <button class="btn btn-danger btn-sm" onclick="deleteSelected()">🗑️ 刪除已選 (${selectedPids.size+selectedTids.size})</button>
   ` : `
     <button class="btn btn-ghost" onclick="enterSelectMode()" title="選取多個項目">☑ 選取</button>
@@ -900,6 +904,128 @@ async function deleteSelected(){
   }
   toast(`🗑️ 已刪除 ${projCount} 個 Project${groupCount?`、${groupCount} 個群組`:''}`);
   exitSelectMode();
+}
+
+// ── 批次加入群組 ────────────────────────────────────────────────
+async function batchMoveToGroup(){
+  if(!selectedPids.size){ toast('請先勾選 Project'); return; }
+  const groups = await dbAll('topics');
+  groups.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  if(!groups.length){
+    if(!confirm('目前還沒有任何群組,要先建立一個嗎?')) return;
+    showTopicModal(null);
+    return;
+  }
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="batch-grp-modal" onclick="if(event.target.id==='batch-grp-modal')document.getElementById('batch-grp-modal').remove()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-hd">
+          <div>
+            <span class="modal-title">📁 批次加入群組</span>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px">已選 ${selectedPids.size} 個 Project</div>
+          </div>
+          <button class="btn-icon" onclick="document.getElementById('batch-grp-modal').remove()">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px">選擇要加入的群組:</div>
+          ${groups.map(g=>`
+            <div onclick="commitBatchMove('${g.id}')"
+              style="padding:13px 16px;border-radius:10px;border:1.5px solid ${g.color}30;background:${g.color}08;margin-bottom:8px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px"
+              onmouseenter="this.style.background='${g.color}18';this.style.borderColor='${g.color}'"
+              onmouseleave="this.style.background='${g.color}08';this.style.borderColor='${g.color}30'">
+              <span style="font-size:22px">📁</span>
+              <span style="flex:1;font-size:14px;font-weight:700;color:${g.color}">${escH(g.name)}</span>
+              <span style="font-size:11px;color:var(--muted)">→</span>
+            </div>
+          `).join('')}
+          <div onclick="commitBatchMove('')"
+            style="padding:13px 16px;border-radius:10px;border:1.5px dashed var(--border);background:var(--cream);margin-bottom:8px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px"
+            onmouseenter="this.style.background='var(--sage-light)';this.style.borderColor='var(--sage)'"
+            onmouseleave="this.style.background='var(--cream)';this.style.borderColor='var(--border)'">
+            <span style="font-size:22px">📋</span>
+            <span style="flex:1;font-size:14px;font-weight:700;color:var(--ink2)">移出群組(設為未分類)</span>
+            <span style="font-size:11px;color:var(--muted)">→</span>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="document.getElementById('batch-grp-modal').remove()">取消</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function commitBatchMove(gid){
+  const ids=[...selectedPids];
+  let count=0;
+  for(const pid of ids){
+    const p=await dbGet('projects',pid);
+    if(p){ p.topicId=gid; await dbPut('projects',p); count++; }
+  }
+  document.getElementById('batch-grp-modal')?.remove();
+  const g = gid ? await dbGet('topics',gid) : null;
+  toast(`✅ 已將 ${count} 個 Project ${g?`加入「${g.name}」`:'設為未分類'}`);
+  exitSelectMode();
+}
+
+// ── 批次複製 ──────────────────────────────────────────────────
+async function batchDuplicate(){
+  if(!selectedPids.size){ toast('請先勾選 Project'); return; }
+  const ids=[...selectedPids];
+  let totalCases=0;
+  for(const pid of ids){
+    const cs=await dbIdx('cases','pid',pid);
+    totalCases += cs.length;
+  }
+  showDupChoice({
+    title:`批次複製 ${ids.length} 個 Project`,
+    desc:`已選 ${ids.length} 個 Project,共 ${totalCases} 筆病例`,
+    caseCount:totalCases,
+    onConfirm:async(includeCases)=>{
+      let copiedProjs=0, copiedCases=0;
+      for(const pid of ids){
+        const src=await dbGet('projects',pid);
+        if(!src) continue;
+        const newPid=uid();
+        const fieldIdMap={};
+        const newProj={
+          ...src,
+          id:newPid,
+          name:src.name+' (副本)',
+          createdAt:Date.now()
+        };
+        if(newProj.fields){
+          newProj.fields=newProj.fields.map(f=>{
+            const newId=uid();
+            fieldIdMap[f.id]=newId;
+            return {...f,id:newId};
+          });
+        }
+        await dbPut('projects',newProj);
+        copiedProjs++;
+        if(includeCases){
+          const cases=await dbIdx('cases','pid',pid);
+          for(const c of cases){
+            const newData={};
+            for(const [oldFid,val] of Object.entries(c.data||{})){
+              const newFid=fieldIdMap[oldFid]||oldFid;
+              newData[newFid]=val;
+            }
+            await dbPut('cases',{
+              ...c,
+              id:uid(),
+              projectId:newPid,
+              data:newData,
+              createdAt:Date.now(),
+              updatedAt:Date.now()
+            });
+            copiedCases++;
+          }
+        }
+      }
+      toast(`✅ 已複製 ${copiedProjs} 個 Project${includeCases?`(含 ${copiedCases} 筆病例)`:'(空白範本)'}`);
+      exitSelectMode();
+    }
+  });
 }
 
 async function duplicateProject(pid){
@@ -1359,6 +1485,12 @@ async function vCase(){
   const c=await dbGet('cases',CID);
   if(!p||!c){goProject(PID);return;}
   const fields=p.fields||DEFAULT_FIELDS;
+  // ★ 切換病人時清空照片暫存區 + AI 掃描狀態
+  photoBin = [];
+  aiImages = [];
+  aiParsedResult = {};
+  secScanImages = [];
+  secScanResult = {};
   formData={...c.data};formOrig={...c.data};dirty=false;
   const nameF=fields.find(f=>f.required)||fields[0];
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 病例';

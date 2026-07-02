@@ -2587,7 +2587,9 @@ async function runSecAIScan(){
       const val=parsed[f.label];
       if(val!==undefined&&val!==null&&val!==''){
         secScanResult[f.id]=String(val);
-        resultItems.push({field:f,value:String(val)});
+        const cur=formData[f.id];
+        const curStr = cur===undefined||cur===null ? '' : String(cur);
+        resultItems.push({field:f,value:String(val),currentVal:curStr});
       }
     }
 
@@ -2597,27 +2599,46 @@ async function runSecAIScan(){
       return;
     }
 
+    const overwriteCount=resultItems.filter(it=>it.currentVal&&it.currentVal!==it.value).length;
+
     document.getElementById('sec-result-list').innerHTML=`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
-        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位</span>
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位${overwriteCount?`　<span style="color:var(--red)">（${overwriteCount} 個已有資料）</span>`:''}</span>
         <div style="display:flex;gap:10px">
           <button onclick="toggleAllSecAI(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
           <button onclick="toggleAllSecAI(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
         </div>
       </div>
-      ${resultItems.map(({field,value})=>`
-        <label style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s"
-          onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
-          <input type="checkbox" class="sec-ai-check" data-fid="${field.id}" checked
-            style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+      ${resultItems.map(({field,value,currentVal})=>{
+        const willOverwrite=currentVal&&currentVal!==value;
+        const curDisplay=currentVal.replace(/\|/g,'、');
+        const newDisplay=value.replace(/\|/g,'、');
+        return `
+        <label style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s;${willOverwrite?'background:#FEF9F0':''}"
+          onmouseenter="this.style.background='${willOverwrite?'#FDF2E0':'var(--sage-light)'}'" onmouseleave="this.style.background='${willOverwrite?'#FEF9F0':''}'">
+          <input type="checkbox" class="sec-ai-check" data-fid="${field.id}" ${willOverwrite?'':'checked'}
+            style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:${willOverwrite?'var(--red)':'var(--sage)'};cursor:pointer">
           <div style="flex:1;min-width:0">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:3px">${escH(field.label)}</div>
-            <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(value)}</div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:4px">${escH(field.label)}</div>
+            ${willOverwrite?`
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                <span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);padding:1px 7px;border-radius:9px;flex-shrink:0">原有資料</span>
+                <span style="font-size:13px;color:var(--muted);text-decoration:line-through;word-break:break-all">${escH(curDisplay)}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:10px;font-weight:700;color:#fff;background:var(--sage);padding:1px 7px;border-radius:9px;flex-shrink:0">AI 讀取</span>
+                <span style="font-size:14px;color:var(--ink);font-weight:700;word-break:break-all">${escH(newDisplay)}</span>
+              </div>
+              <div style="font-size:11px;color:var(--red);margin-top:5px;font-weight:600">⚠️ 此欄位已有資料，預設不勾選。確認 AI 讀的正確再打勾覆蓋</div>
+            `:`
+              <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(newDisplay)}</div>
+            `}
           </div>
-        </label>`).join('')}`;
+        </label>`;
+      }).join('')}`;
     document.getElementById('sec-result').style.display='';
     document.getElementById('sec-apply-btn').style.display='flex';
-    setSecStatus('done',`找到 ${resultItems.length} 個欄位，勾選後套用`);
+    setSecStatus('done',`找到 ${resultItems.length} 個欄位${overwriteCount?`（${overwriteCount} 個已有資料，請確認）`:''}，勾選後套用`);
 
   } catch(err){
     setSecStatus('error','辨識失敗：'+err.message);
@@ -2804,7 +2825,9 @@ ${fieldList}
       const val=parsed[f.label];
       if(val!==undefined&&val!==null&&val!==''){
         aiParsedResult[f.id]=String(val);
-        resultItems.push({field:f,value:String(val)});
+        const cur=formData[f.id];
+        const curStr = cur===undefined||cur===null ? '' : String(cur);
+        resultItems.push({field:f,value:String(val),currentVal:curStr});
       }
     }
 
@@ -2814,26 +2837,45 @@ ${fieldList}
       return;
     }
 
+    const overwriteCount=resultItems.filter(it=>it.currentVal&&it.currentVal!==it.value).length;
+
     document.getElementById('ai-result-list').innerHTML=`
       <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
-        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位</span>
+        <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位${overwriteCount?`　<span style="color:var(--red)">（${overwriteCount} 個已有資料）</span>`:''}</span>
         <div style="display:flex;gap:10px">
           <button onclick="toggleAllAI(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
           <button onclick="toggleAllAI(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
         </div>
       </div>
-      ${resultItems.map(({field,value})=>`
-        <label style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid #f0f6fc;cursor:pointer;transition:background .12s"
-          onmouseenter="this.style.background='var(--sage-light)'" onmouseleave="this.style.background=''">
-          <input type="checkbox" class="ai-check" data-fid="${field.id}" checked
-            style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+      ${resultItems.map(({field,value,currentVal})=>{
+        const willOverwrite=currentVal&&currentVal!==value;
+        const curDisplay=currentVal.replace(/\|/g,'、');
+        const newDisplay=value.replace(/\|/g,'、');
+        return `
+        <label style="display:flex;align-items:flex-start;gap:12px;padding:11px 14px;border-bottom:1px solid #f0f6fc;cursor:pointer;transition:background .12s;${willOverwrite?'background:#FEF9F0':''}"
+          onmouseenter="this.style.background='${willOverwrite?'#FDF2E0':'var(--sage-light)'}'" onmouseleave="this.style.background='${willOverwrite?'#FEF9F0':''}'">
+          <input type="checkbox" class="ai-check" data-fid="${field.id}" ${willOverwrite?'':'checked'}
+            style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:${willOverwrite?'var(--red)':'var(--sage)'};cursor:pointer">
           <div style="flex:1;min-width:0">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:3px">${escH(field.label)}</div>
-            <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(value)}</div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:4px">${escH(field.label)}</div>
+            ${willOverwrite?`
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                <span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);padding:1px 7px;border-radius:9px;flex-shrink:0">原有資料</span>
+                <span style="font-size:13px;color:var(--muted);text-decoration:line-through;word-break:break-all">${escH(curDisplay)}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:10px;font-weight:700;color:#fff;background:var(--sage);padding:1px 7px;border-radius:9px;flex-shrink:0">AI 讀取</span>
+                <span style="font-size:14px;color:var(--ink);font-weight:700;word-break:break-all">${escH(newDisplay)}</span>
+              </div>
+              <div style="font-size:11px;color:var(--red);margin-top:5px;font-weight:600">⚠️ 此欄位已有資料，預設不勾選。確認 AI 讀的正確再打勾覆蓋</div>
+            `:`
+              <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(newDisplay)}</div>
+            `}
           </div>
-        </label>`).join('')}`;
+        </label>`;
+      }).join('')}`;
     document.getElementById('ai-result').style.display='';
-    setAIStatus('done',`辨識完成！找到 ${resultItems.length} 個欄位，勾選後套用`);
+    setAIStatus('done',`辨識完成！找到 ${resultItems.length} 個欄位${overwriteCount?`（${overwriteCount} 個已有資料，請確認）`:''}，勾選後套用`);
 
   } catch(err){
     setAIStatus('error','辨識失敗：'+err.message);

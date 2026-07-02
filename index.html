@@ -1767,7 +1767,7 @@ async function vCase(){
   // Bind inputs
   const projLinks = p.fieldLinks||[];
   document.getElementById('app').querySelectorAll('[data-fid]').forEach(el=>{
-    el.addEventListener('input',e=>{
+    const handler=e=>{
       const fid=e.target.dataset.fid;
       formData[fid]=e.target.value;
       dirty=true;
@@ -1778,7 +1778,10 @@ async function vCase(){
       }
       // 觸發欄位連動
       applyFieldLinks(fid, e.target.value, projLinks);
-    });
+    };
+    el.addEventListener('input',handler);
+    // select 有時只發 change 不發 input，兩者都綁
+    if(el.tagName==='SELECT') el.addEventListener('change',handler);
   });
   // 初始化：有填過資料的分區自動展開，空白分區收起
   document.querySelectorAll('.fsection').forEach(sec=>{
@@ -1795,6 +1798,36 @@ async function vCase(){
   // 初始化補充備註高度
   const pnTA=document.getElementById('photo-note-input');
   if(pnTA) autoResizeTA(pnTA);
+  // ★ 開啟病例時，依現有值自動套用一次連動規則（讓既有資料也生效，但不覆蓋已填的目標欄位）
+  if(projLinks.length){
+    applyAllFieldLinksOnLoad(projLinks);
+  }
+}
+
+// 開啟病例時執行：針對每條規則，若來源符合、且目標欄位目前為空，才自動填入
+function applyAllFieldLinksOnLoad(links){
+  let anyApplied=false;
+  for(const lk of links){
+    const srcVal=String(formData[lk.srcFid]||'');
+    let matched=false;
+    if(lk.op==='contains'){
+      matched=srcVal.split('|').map(s=>s.trim()).includes(lk.srcVal);
+    } else {
+      matched=(srcVal===lk.srcVal);
+    }
+    if(!matched) continue;
+    // 只在目標欄位為空時填入，避免蓋掉手動改過的值
+    const cur=formData[lk.tgtFid];
+    if(cur===undefined||cur===null||cur===''){
+      applyFieldValue(lk.tgtFid, lk.tgtVal);
+      anyApplied=true;
+    }
+  }
+  if(anyApplied){
+    dirty=true;
+    document.getElementById('savebar')?.classList.add('on');
+    toast('🔗 已依連動規則自動帶入部分欄位（可手動修改）');
+  }
 }
 
 function fInput(f,v){

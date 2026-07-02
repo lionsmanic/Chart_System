@@ -605,6 +605,10 @@ async function vProjects(){
   document.getElementById('hbreadcrumb').textContent='';
   const selectBar = selectMode ? `
     <button class="btn btn-ghost" onclick="exitSelectMode()">取消</button>
+    ${selectedPids.size>0?`
+      <button class="btn btn-ghost btn-sm" onclick="batchMoveToGroup()">📁 加入群組 (${selectedPids.size})</button>
+      <button class="btn btn-ghost btn-sm" onclick="batchDuplicate()">📋 批次複製 (${selectedPids.size})</button>
+    `:''}
     <button class="btn btn-danger btn-sm" onclick="deleteSelected()">🗑️ 刪除已選 (${selectedPids.size+selectedTids.size})</button>
   ` : `
     <button class="btn btn-ghost" onclick="enterSelectMode()" title="選取多個項目">☑ 選取</button>
@@ -905,6 +909,135 @@ async function deleteSelected(){
   exitSelectMode();
 }
 
+// ── 批次加入群組 ────────────────────────────────────────────────
+async function batchMoveToGroup(){
+  if(!selectedPids.size){ toast('請先勾選 Project'); return; }
+  const groups = await dbAll('topics');
+  groups.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  if(!groups.length){
+    if(!confirm('目前還沒有任何群組,要先建立一個嗎?')) return;
+    showTopicModal(null);
+    return;
+  }
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="batch-grp-modal" onclick="if(event.target.id==='batch-grp-modal')document.getElementById('batch-grp-modal').remove()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-hd">
+          <div>
+            <span class="modal-title">📁 批次加入群組</span>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px">已選 ${selectedPids.size} 個 Project</div>
+          </div>
+          <button class="btn-icon" onclick="document.getElementById('batch-grp-modal').remove()">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px">選擇要加入的群組:</div>
+          ${groups.map(g=>`
+            <div onclick="commitBatchMove('${g.id}')"
+              style="padding:13px 16px;border-radius:10px;border:1.5px solid ${g.color}30;background:${g.color}08;margin-bottom:8px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px"
+              onmouseenter="this.style.background='${g.color}18';this.style.borderColor='${g.color}'"
+              onmouseleave="this.style.background='${g.color}08';this.style.borderColor='${g.color}30'">
+              <span style="font-size:22px">📁</span>
+              <span style="flex:1;font-size:14px;font-weight:700;color:${g.color}">${escH(g.name)}</span>
+              <span style="font-size:11px;color:var(--muted)">→</span>
+            </div>
+          `).join('')}
+          <div onclick="commitBatchMove('')"
+            style="padding:13px 16px;border-radius:10px;border:1.5px dashed var(--border);background:var(--cream);margin-bottom:8px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px"
+            onmouseenter="this.style.background='var(--sage-light)';this.style.borderColor='var(--sage)'"
+            onmouseleave="this.style.background='var(--cream)';this.style.borderColor='var(--border)'">
+            <span style="font-size:22px">📋</span>
+            <span style="flex:1;font-size:14px;font-weight:700;color:var(--ink2)">移出群組(設為未分類)</span>
+            <span style="font-size:11px;color:var(--muted)">→</span>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="document.getElementById('batch-grp-modal').remove()">取消</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function commitBatchMove(gid){
+  const ids=[...selectedPids];
+  let count=0;
+  for(const pid of ids){
+    const p=await dbGet('projects',pid);
+    if(p){ p.topicId=gid; await dbPut('projects',p); count++; }
+  }
+  document.getElementById('batch-grp-modal')?.remove();
+  const g = gid ? await dbGet('topics',gid) : null;
+  toast(`✅ 已將 ${count} 個 Project ${g?`加入「${g.name}」`:'設為未分類'}`);
+  exitSelectMode();
+}
+
+// ── 批次複製 ──────────────────────────────────────────────────
+async function batchDuplicate(){
+  if(!selectedPids.size){ toast('請先勾選 Project'); return; }
+  const ids=[...selectedPids];
+  let totalCases=0;
+  for(const pid of ids){
+    const cs=await dbIdx('cases','pid',pid);
+    totalCases += cs.length;
+  }
+  showDupChoice({
+    title:`批次複製 ${ids.length} 個 Project`,
+    desc:`已選 ${ids.length} 個 Project,共 ${totalCases} 筆病例`,
+    caseCount:totalCases,
+    onConfirm:async(includeCases)=>{
+      let copiedProjs=0, copiedCases=0;
+      for(const pid of ids){
+        const src=await dbGet('projects',pid);
+        if(!src) continue;
+        const newPid=uid();
+        const fieldIdMap={};
+        const newProj={
+          ...src,
+          id:newPid,
+          name:src.name+' (副本)',
+          createdAt:Date.now()
+        };
+        if(newProj.fields){
+          newProj.fields=newProj.fields.map(f=>{
+            const newId=uid();
+            fieldIdMap[f.id]=newId;
+            return {...f,id:newId};
+          });
+        }
+        if(newProj.fieldLinks){
+          newProj.fieldLinks=newProj.fieldLinks.map(lk=>({
+            ...lk,
+            srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
+            tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
+          }));
+        }
+        await dbPut('projects',newProj);
+        copiedProjs++;
+        if(includeCases){
+          const cases=await dbIdx('cases','pid',pid);
+          for(const c of cases){
+            const newData={};
+            for(const [oldFid,val] of Object.entries(c.data||{})){
+              const newFid=fieldIdMap[oldFid]||oldFid;
+              newData[newFid]=val;
+            }
+            await dbPut('cases',{
+              ...c,
+              id:uid(),
+              projectId:newPid,
+              data:newData,
+              createdAt:Date.now(),
+              updatedAt:Date.now()
+            });
+            copiedCases++;
+          }
+        }
+      }
+      toast(`✅ 已複製 ${copiedProjs} 個 Project${includeCases?`(含 ${copiedCases} 筆病例)`:'(空白範本)'}`);
+      exitSelectMode();
+    }
+  });
+}
+
 async function duplicateProject(pid){
   const src=await dbGet('projects',pid);
   if(!src) return;
@@ -928,6 +1061,14 @@ async function duplicateProject(pid){
           fieldIdMap[f.id]=newId;
           return {...f,id:newId};
         });
+      }
+      // 連動規則的欄位 ID 也要跟著轉換
+      if(newProj.fieldLinks){
+        newProj.fieldLinks=newProj.fieldLinks.map(lk=>({
+          ...lk,
+          srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
+          tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
+        }));
       }
       await dbPut('projects',newProj);
 
@@ -996,6 +1137,13 @@ async function duplicateGroup(gid){
             fieldIdMap[f.id]=newId;
             return {...f,id:newId};
           });
+        }
+        if(newProj.fieldLinks){
+          newProj.fieldLinks=newProj.fieldLinks.map(lk=>({
+            ...lk,
+            srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
+            tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
+          }));
         }
         await dbPut('projects',newProj);
 
@@ -1362,6 +1510,12 @@ async function vCase(){
   const c=await dbGet('cases',CID);
   if(!p||!c){goProject(PID);return;}
   const fields=p.fields||DEFAULT_FIELDS;
+  // ★ 切換病人時清空照片暫存區 + AI 掃描狀態
+  photoBin = [];
+  aiImages = [];
+  aiParsedResult = {};
+  secScanImages = [];
+  secScanResult = {};
   formData={...c.data};formOrig={...c.data};dirty=false;
   const nameF=fields.find(f=>f.required)||fields[0];
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 病例';
@@ -1611,15 +1765,19 @@ async function vCase(){
       <div style="height:80px"></div>
     </div>`;
   // Bind inputs
+  const projLinks = p.fieldLinks||[];
   document.getElementById('app').querySelectorAll('[data-fid]').forEach(el=>{
     el.addEventListener('input',e=>{
-      formData[e.target.dataset.fid]=e.target.value;
+      const fid=e.target.dataset.fid;
+      formData[fid]=e.target.value;
       dirty=true;
       document.getElementById('savebar').classList.add('on');
-      if(e.target.dataset.fid===nameF?.id){
+      if(fid===nameF?.id){
         const h=document.getElementById('hero-name');
         if(h) h.textContent=e.target.value||'新病例';
       }
+      // 觸發欄位連動
+      applyFieldLinks(fid, e.target.value, projLinks);
     });
   });
   // 初始化：有填過資料的分區自動展開，空白分區收起
@@ -1686,6 +1844,48 @@ function applyFieldValue(fid, val){
   }
 }
 
+// ── 🔗 執行欄位連動：來源欄位變動時，自動填目標欄位 ──────────────────
+function applyFieldLinks(changedFid, newVal, links){
+  if(!links||!links.length) return;
+  const valStr=String(newVal||'');
+  for(const lk of links){
+    if(lk.srcFid!==changedFid) continue;
+    let matched=false;
+    if(lk.op==='contains'){
+      const parts=valStr.split('|').map(s=>s.trim());
+      matched=parts.includes(lk.srcVal);
+    } else {
+      matched = (valStr===lk.srcVal);
+    }
+    if(!matched) continue;
+    applyFieldValue(lk.tgtFid, lk.tgtVal);
+    dirty=true;
+    document.getElementById('savebar')?.classList.add('on');
+    flashLinkedField(lk.tgtFid);
+    toast(`🔗 已依連動規則自動填入「${lk.tgtVal}」（可手動修改）`);
+  }
+}
+
+// 讓被連動填入的欄位閃一下綠光提示
+function flashLinkedField(fid){
+  const el=document.querySelector(`[data-fid="${fid}"]`);
+  if(!el) return;
+  const box=el.closest('.fg')||el;
+  box.style.transition='box-shadow .3s,background .3s';
+  box.style.boxShadow='0 0 0 3px var(--sage)';
+  box.style.borderRadius='10px';
+  const sec=el.closest('.fsection');
+  if(sec){
+    const body=sec.querySelector('.fsection-body');
+    const icon=sec.querySelector('.sec-toggle-icon');
+    if(body && body.style.display==='none'){
+      body.style.display='';
+      if(icon) icon.style.transform='rotate(0deg)';
+    }
+  }
+  setTimeout(()=>{ box.style.boxShadow=''; }, 1400);
+}
+
 function toggleMultiSelect(label, fid){
   const checked = label.querySelector('span').textContent === '☑';
   const val = label.querySelector('input[type=hidden]').value;
@@ -1704,6 +1904,12 @@ function toggleMultiSelect(label, fid){
   formData[fid] = allChecked.join('|');
   dirty = true;
   document.getElementById('savebar').classList.add('on');
+  // 觸發欄位連動（multiselect）
+  if(PID){
+    dbGet('projects',PID).then(p=>{
+      applyFieldLinks(fid, formData[fid], p.fieldLinks||[]);
+    });
+  }
 }
 let photoBin = [];  // [{base64, mimeType, dataUrl, name}]
 
@@ -2957,6 +3163,7 @@ async function delCase(cid){
 // ── Settings (field builder) ───────────────────────────────────────────────
 let editSectionNotes={};   // { sectionName: noteText (拍照備註) }
 let editSectionDerives={}; // { sectionName: derivedRule (AI 推導規則) }
+let editFieldLinks=[];     // [{srcFid, op:'is'|'contains', srcVal, tgtFid, tgtVal}]
 
 async function vSettings(pid){
   pid=pid||PID; PID=pid; VIEW='settings';
@@ -2964,6 +3171,7 @@ async function vSettings(pid){
   editFields=JSON.parse(JSON.stringify(p.fields||DEFAULT_FIELDS));
   editSectionNotes=JSON.parse(JSON.stringify(p.sectionNotes||{}));
   editSectionDerives=JSON.parse(JSON.stringify(p.sectionDerives||{}));
+  editFieldLinks=JSON.parse(JSON.stringify(p.fieldLinks||[]));
   const defaultPhotoNote = p.defaultPhotoNote||'';
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
   document.getElementById('hactions').innerHTML=`
@@ -3015,6 +3223,24 @@ async function vSettings(pid){
         </div>
         <div class="card-body" style="padding:16px" id="flist-wrap">
           ${renderFieldsBySection()}
+        </div>
+      </div>
+
+      <!-- 🔗 欄位連動規則 -->
+      <div class="card" style="margin-bottom:22px">
+        <div class="card-header">
+          <span style="font-weight:700;font-size:15px">🔗 欄位連動規則</span>
+          <span style="font-size:13px;color:var(--muted)" id="link-count-badge">${editFieldLinks.length} 條規則</span>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.7">
+            設定「當某欄位選了某值，就自動填另一個欄位」。填入病例後仍可手動修改。<br>
+            <span style="color:var(--sage);font-weight:600">例：當「懷孕生產史」是「有」→ 自動把「有無性經驗」設為「有」</span>
+          </div>
+          <div id="links-list">${renderFieldLinks()}</div>
+          <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:10px;border-style:dashed" onclick="showAddLinkModal()">
+            ＋ 新增連動規則
+          </button>
         </div>
       </div>
 
@@ -3134,6 +3360,148 @@ function renderFieldsBySection(){
         </div>
       </div>`;
   }).join('');
+}
+
+// ── 🔗 欄位連動規則 ────────────────────────────────────────────────────
+function fieldLabelById(fid){
+  const f=editFields.find(x=>x.id===fid);
+  return f?f.label:'（已刪除欄位）';
+}
+
+function renderFieldLinks(){
+  if(!editFieldLinks.length){
+    return `<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;background:var(--cream);border-radius:10px">尚無連動規則，點下方按鈕新增</div>`;
+  }
+  return editFieldLinks.map((lk,i)=>{
+    const opTxt = lk.op==='contains'?'包含':'是';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border2);border-radius:11px;margin-bottom:8px">
+        <span style="font-size:16px;flex-shrink:0">🔗</span>
+        <div style="flex:1;min-width:0;font-size:13px;line-height:1.7;color:var(--ink2)">
+          當 <strong style="color:var(--sage)">${escH(fieldLabelById(lk.srcFid))}</strong>
+          ${opTxt} <strong style="color:var(--gold)">「${escH(lk.srcVal)}」</strong>
+          <br>→ 自動把 <strong style="color:var(--sage)">${escH(fieldLabelById(lk.tgtFid))}</strong>
+          設為 <strong style="color:var(--gold)">「${escH(lk.tgtVal)}」</strong>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="removeFieldLink(${i})" style="font-size:12px;padding:5px 10px;flex-shrink:0">刪除</button>
+      </div>`;
+  }).join('');
+}
+
+function refreshLinksList(){
+  const el=document.getElementById('links-list');
+  if(el) el.innerHTML=renderFieldLinks();
+  const badge=document.getElementById('link-count-badge');
+  if(badge) badge.textContent=editFieldLinks.length+' 條規則';
+}
+
+function removeFieldLink(i){
+  editFieldLinks.splice(i,1);
+  refreshLinksList();
+}
+
+// 依欄位型別給出可選值（select/multiselect 給選項；其他給空字串讓使用者自填）
+function valuesForField(fid){
+  const f=editFields.find(x=>x.id===fid);
+  if(!f) return [];
+  if(['select','multiselect'].includes(f.type)){
+    return (f.options||'').split(',').map(s=>s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function showAddLinkModal(){
+  if(editFields.length<2){ toast('至少要有兩個欄位才能設定連動'); return; }
+  document.getElementById('link-modal')?.remove();
+  const fieldOpts=editFields.map(f=>`<option value="${f.id}">${escH(f.label)}（${escH(f.section)}）</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="link-modal" onclick="if(event.target.id==='link-modal')closeLinkModal()">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-hd">
+          <span class="modal-title">🔗 新增連動規則</span>
+          <button class="btn-icon" onclick="closeLinkModal()">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="background:var(--sage-light);border:1px solid #C5E0D8;border-radius:10px;padding:11px 14px;margin-bottom:16px;font-size:13px;color:var(--ink2);line-height:1.7">
+            當「來源欄位」符合條件時，自動填入「目標欄位」。填入後仍可手動改。
+          </div>
+
+          <div class="fg">
+            <label class="flabel">當這個欄位（來源）</label>
+            <select class="fselect" id="lk-src" onchange="onLinkSrcChange()">${fieldOpts}</select>
+          </div>
+
+          <div class="frow">
+            <div class="fg">
+              <label class="flabel">條件</label>
+              <select class="fselect" id="lk-op">
+                <option value="is">值「是」</option>
+                <option value="contains">值「包含」（多選用）</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label class="flabel">這個值</label>
+              <div id="lk-srcval-wrap"></div>
+            </div>
+          </div>
+
+          <div style="text-align:center;font-size:20px;color:var(--muted);margin:4px 0 12px">↓</div>
+
+          <div class="fg">
+            <label class="flabel">就自動把這個欄位（目標）</label>
+            <select class="fselect" id="lk-tgt" onchange="onLinkTgtChange()">${fieldOpts}</select>
+          </div>
+
+          <div class="fg" style="margin-bottom:0">
+            <label class="flabel">設為這個值</label>
+            <div id="lk-tgtval-wrap"></div>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeLinkModal()">取消</button>
+          <button class="btn btn-primary" onclick="commitAddLink()">✅ 新增規則</button>
+        </div>
+      </div>
+    </div>`);
+  // 預設來源=第1欄，目標=第2欄
+  document.getElementById('lk-src').value=editFields[0].id;
+  document.getElementById('lk-tgt').value=editFields[1].id;
+  onLinkSrcChange();
+  onLinkTgtChange();
+}
+
+// 依欄位型別，決定「值」輸入用下拉還是文字框
+function valInputHTML(fid, elId){
+  const vals=valuesForField(fid);
+  if(vals.length){
+    return `<select class="fselect" id="${elId}">${vals.map(v=>`<option value="${escH(v)}">${escH(v)}</option>`).join('')}</select>`;
+  }
+  return `<input class="finput" id="${elId}" placeholder="輸入值，例：有、是、陽性">`;
+}
+function onLinkSrcChange(){
+  const fid=document.getElementById('lk-src').value;
+  document.getElementById('lk-srcval-wrap').innerHTML=valInputHTML(fid,'lk-srcval');
+}
+function onLinkTgtChange(){
+  const fid=document.getElementById('lk-tgt').value;
+  document.getElementById('lk-tgtval-wrap').innerHTML=valInputHTML(fid,'lk-tgtval');
+}
+
+function closeLinkModal(){ document.getElementById('link-modal')?.remove(); }
+
+function commitAddLink(){
+  const srcFid=document.getElementById('lk-src').value;
+  const op=document.getElementById('lk-op').value;
+  const srcVal=(document.getElementById('lk-srcval')?.value||'').trim();
+  const tgtFid=document.getElementById('lk-tgt').value;
+  const tgtVal=(document.getElementById('lk-tgtval')?.value||'').trim();
+  if(srcFid===tgtFid){ alert('來源與目標不能是同一個欄位'); return; }
+  if(!srcVal){ alert('請填「來源欄位」要符合的值'); return; }
+  if(!tgtVal){ alert('請填「目標欄位」要自動設定的值'); return; }
+  editFieldLinks.push({srcFid, op, srcVal, tgtFid, tgtVal});
+  closeLinkModal();
+  refreshLinksList();
+  toast('✅ 連動規則已新增');
 }
 
 // ── 分區拖曳排序 ──────────────────────────────────────────────────────────
@@ -3588,6 +3956,7 @@ async function saveSettings(pid){
   });
   p.sectionNotes=editSectionNotes;
   p.sectionDerives=editSectionDerives;
+  p.fieldLinks=editFieldLinks;
   p.defaultPhotoNote=document.getElementById('default-photo-note')?.value||'';
   await dbPut('projects',p);
   toast('✅ 設定已儲存（連動的病例會自動更新顯示）');
@@ -3714,19 +4083,32 @@ async function createProj(){
 
   let fields=JSON.parse(JSON.stringify(DEFAULT_FIELDS));
   let sectionNotes={};
+  let sectionDerives={};
+  let fieldLinks=[];
   let defaultPhotoNote='';
 
   if(copyFromId){
     const src=await dbGet('projects',copyFromId);
     if(src){
-      fields=(src.fields||DEFAULT_FIELDS).map(f=>({...f,id:uid()}));
+      const fieldIdMap={};
+      fields=(src.fields||DEFAULT_FIELDS).map(f=>{
+        const newId=uid();
+        fieldIdMap[f.id]=newId;
+        return {...f,id:newId};
+      });
       sectionNotes=JSON.parse(JSON.stringify(src.sectionNotes||{}));
+      sectionDerives=JSON.parse(JSON.stringify(src.sectionDerives||{}));
+      fieldLinks=(src.fieldLinks||[]).map(lk=>({
+        ...lk,
+        srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
+        tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
+      }));
       if(src.defaultPhotoNote) defaultPhotoNote=src.defaultPhotoNote;
       toast(`✅ 已複製「${src.name}」的欄位設定`);
     }
   }
 
-  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,defaultPhotoNote,createdAt:Date.now()});
+  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,sectionDerives,fieldLinks,defaultPhotoNote,createdAt:Date.now()});
   closeMod();
   if(!copyFromId) toast('✅ Project 已建立');
   if(VIEW==='group' && topicId===GID) vGroup(); else vProjects();

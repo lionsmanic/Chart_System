@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>病例管理系統</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style>
   :root{
     --ink:#1C1E22;--ink2:#2E3138;--sage:#3E7265;--sage2:#4E8A7A;--sage-light:#E8F3F0;
@@ -1510,7 +1511,7 @@ async function vCase(){
   const c=await dbGet('cases',CID);
   if(!p||!c){goProject(PID);return;}
   const fields=p.fields||DEFAULT_FIELDS;
-  // ★ 切換病人時清空照片暫存區 + AI 掃描狀態
+  // ★ 切換病人時清空檔案暫存區 + AI 掃描狀態
   photoBin = [];
   aiImages = [];
   aiParsedResult = {};
@@ -1641,13 +1642,13 @@ async function vCase(){
         </div>`;
       })()}
 
-      <!-- 📦 照片暫存區 -->
+      <!-- 📦 檔案暫存區 -->
       <div style="border-radius:14px;overflow:hidden;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,30,34,.08);border:1px solid var(--border2)">
         <div onclick="togglePhotoBin()" style="background:var(--ink2);padding:12px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
           <span style="font-size:17px">🗂️</span>
           <div style="flex:1">
-            <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">照片暫存區</div>
-            <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:1px">先將所有照片拖曳到此，AI 掃各分區時直接從此選取</div>
+            <div style="font-size:14px;font-weight:800;color:var(--cream);letter-spacing:.3px">檔案暫存區</div>
+            <div style="font-size:11px;color:rgba(240,235,225,.4);margin-top:1px">先將所有檔案拖曳到此（圖片/PDF/文字檔），AI 掃各分區時直接選取</div>
           </div>
           <span id="bin-count-badge" style="font-size:11px;color:rgba(240,235,225,.5);font-family:'DM Mono',monospace">0 張</span>
           <span id="photo-bin-icon" style="font-size:13px;color:rgba(240,235,225,.4);margin-left:4px">▲</span>
@@ -1661,9 +1662,9 @@ async function vCase(){
             ondrop="handleBinDrop(event)"
             style="border:1.5px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;background:var(--cream);transition:all .2s;margin-bottom:12px">
             <div style="font-size:26px;margin-bottom:6px;opacity:.5">📂</div>
-            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此或拖曳所有照片到這裡</div>
-            <div style="font-size:12px;color:var(--muted)">一次放入全部，再逐區分配給 AI 判讀</div>
-            <input type="file" id="bin-file-input" accept="image/*" multiple style="display:none" onchange="handleBinFiles(this)">
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此或拖曳所有檔案到這裡</div>
+            <div style="font-size:12px;color:var(--muted)">支援 圖片 / PDF / TXT / Word(.docx) · 一次放入全部，再逐區分配給 AI</div>
+            <input type="file" id="bin-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log" multiple style="display:none" onchange="handleBinFiles(this)">
           </div>
           <!-- 縮圖格 -->
           <div id="bin-grid" style="display:flex;flex-wrap:wrap;gap:10px"></div>
@@ -1673,7 +1674,7 @@ async function vCase(){
         <div style="background:var(--ink);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)">
           <div>
             <div style="color:var(--cream);font-size:14px;font-weight:700;letter-spacing:.3px">📷 Gemini AI 全表掃描</div>
-            <div style="color:rgba(240,235,225,.45);font-size:12px;margin-top:3px">上傳照片，AI 一次填入所有欄位</div>
+            <div style="color:rgba(240,235,225,.45);font-size:12px;margin-top:3px">上傳圖片/PDF/文字檔，AI 一次填入所有欄位</div>
           </div>
           <button onclick="hideAIScan()" style="background:rgba(240,235,225,.08);border:1px solid rgba(240,235,225,.15);color:rgba(240,235,225,.7);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer">收起 ✕</button>
         </div>
@@ -1692,12 +1693,12 @@ async function vCase(){
             ondragleave="this.style.background='var(--card)';this.style.borderColor='var(--border)'"
             ondrop="handleAIDrop(event)">
             <div style="font-size:32px;margin-bottom:8px;opacity:.6">📸</div>
-            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px">點此上傳病歷照片（可一次選多張）</div>
-            <div style="font-size:12px;color:var(--muted)">支援 JPG、PNG ・ 手機拍照 ・ 拖曳上傳 ・ 最多 8 張</div>
-            <input type="file" id="ai-file-input" accept="image/*" multiple capture="environment" style="display:none" onchange="handleAIFiles(this)">
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px">點此上傳病歷檔案（可一次選多個）</div>
+            <div style="font-size:12px;color:var(--muted)">支援 圖片 / PDF / TXT / Word(.docx) ・ 拖曳上傳 ・ 最多 8 個</div>
+            <input type="file" id="ai-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log" multiple style="display:none" onchange="handleAIFiles(this)">
           </div>
           <div id="ai-thumbs" style="display:none;margin-top:14px">
-            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選擇的照片 <span id="ai-img-count"></span></div>
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選擇的檔案 <span id="ai-img-count"></span></div>
             <div id="ai-thumbs-grid" style="display:flex;gap:8px;flex-wrap:wrap"></div>
             <div id="ai-status" style="margin-top:12px;padding:12px 16px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:10px">
               <span id="ai-status-icon">🟡</span>
@@ -1955,35 +1956,132 @@ function togglePhotoBin(){
   if(icon) icon.textContent=open?'▼':'▲';
 }
 
+// ── 📄 通用檔案讀取器：支援 圖片 / PDF / 純文字 / Word ────────────────
+// 回傳 {kind:'image'|'pdf'|'text', base64?, mimeType?, dataUrl?, text?, name}
+function detectFileKind(file){
+  const name=(file.name||'').toLowerCase();
+  const type=file.type||'';
+  if(type.startsWith('image/')||/\.(jpe?g|png|gif|webp|heic|heif|bmp)$/.test(name)) return 'image';
+  if(type==='application/pdf'||name.endsWith('.pdf')) return 'pdf';
+  if(name.endsWith('.docx')||type==='application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx';
+  if(name.endsWith('.doc')) return 'doc-legacy';
+  if(type.startsWith('text/')||/\.(txt|md|csv|tsv|json|rtf|log)$/.test(name)) return 'text';
+  return 'unknown';
+}
+
+function readFileForAI(file){
+  return new Promise((resolve,reject)=>{
+    const kind=detectFileKind(file);
+
+    if(kind==='unknown'){
+      reject(new Error(`不支援的檔案格式：${file.name}`));
+      return;
+    }
+    if(kind==='doc-legacy'){
+      reject(new Error(`舊版 .doc 無法直接讀取，請用 Word 另存為 .docx 或 PDF：${file.name}`));
+      return;
+    }
+
+    // Word (.docx) → 用 mammoth 抽出純文字
+    if(kind==='docx'){
+      if(typeof mammoth==='undefined'){
+        reject(new Error('Word 解析元件尚未載入，請重新整理頁面再試'));
+        return;
+      }
+      const r=new FileReader();
+      r.onload=e=>{
+        mammoth.extractRawText({arrayBuffer:e.target.result})
+          .then(res=>{
+            const txt=(res.value||'').trim();
+            if(!txt){ reject(new Error(`${file.name} 沒有可讀取的文字`)); return; }
+            resolve({kind:'text', text:txt, name:file.name, mimeType:'text/plain'});
+          })
+          .catch(err=>reject(new Error(`Word 解析失敗：${err.message}`)));
+      };
+      r.onerror=()=>reject(new Error(`讀取失敗：${file.name}`));
+      r.readAsArrayBuffer(file);
+      return;
+    }
+
+    // 純文字檔
+    if(kind==='text'){
+      const r=new FileReader();
+      r.onload=e=>{
+        const txt=String(e.target.result||'').trim();
+        if(!txt){ reject(new Error(`${file.name} 是空檔案`)); return; }
+        resolve({kind:'text', text:txt, name:file.name, mimeType:'text/plain'});
+      };
+      r.onerror=()=>reject(new Error(`讀取失敗：${file.name}`));
+      r.readAsText(file,'UTF-8');
+      return;
+    }
+
+    // 圖片 / PDF → base64（Gemini 原生支援 application/pdf）
+    const r=new FileReader();
+    r.onload=e=>{
+      const dataUrl=e.target.result;
+      resolve({
+        kind: kind,   // 'image' | 'pdf'
+        base64: dataUrl.split(',')[1],
+        mimeType: kind==='pdf' ? 'application/pdf' : (file.type||'image/jpeg'),
+        dataUrl: dataUrl,
+        name: file.name
+      });
+    };
+    r.onerror=()=>reject(new Error(`讀取失敗：${file.name}`));
+    r.readAsDataURL(file);
+  });
+}
+
+// 把一組檔案轉成 Gemini parts（圖片/PDF 用 inline_data，文字用 text）
+function filesToGeminiParts(items){
+  const parts=[];
+  let idx=0;
+  for(const it of items){
+    idx++;
+    if(it.kind==='text'){
+      parts.push({text:`[附件 ${idx}：${it.name}（文字檔內容）]\n${it.text}\n[附件 ${idx} 結束]`});
+    } else {
+      const label = it.kind==='pdf' ? `[附件 ${idx}：${it.name}（PDF）]` : `[附件 ${idx}：${it.name}（圖片）]`;
+      parts.push({text:label});
+      parts.push({inline_data:{mime_type:it.mimeType, data:it.base64}});
+    }
+  }
+  return parts;
+}
+
+// 檔案類型對應的顯示圖示
+function kindIcon(kind){
+  return kind==='pdf'?'📕':kind==='text'?'📄':'🖼️';
+}
+
+const ACCEPT_ALL='image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log';
+
 function handleBinDrop(e){
   e.preventDefault();
   document.getElementById('bin-upload-area').style.background='var(--cream)';
   document.getElementById('bin-upload-area').style.borderColor='var(--border)';
-  const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));
+  const files=[...e.dataTransfer.files];
   if(files.length) addToBin(files);
 }
 function handleBinFiles(input){
-  const files=[...input.files].filter(f=>f.type.startsWith('image/'));
+  const files=[...input.files];
   if(files.length) addToBin(files);
   input.value='';
 }
 
-function addToBin(files){
-  let done=0;
-  files.forEach(file=>{
-    const r=new FileReader();
-    r.onload=e=>{
-      photoBin.push({
-        base64:e.target.result.split(',')[1],
-        mimeType:file.type||'image/jpeg',
-        dataUrl:e.target.result,
-        name:file.name
-      });
-      done++;
-      if(done===files.length) renderBin();
-    };
-    r.readAsDataURL(file);
-  });
+async function addToBin(files){
+  const errors=[];
+  for(const file of files){
+    try{
+      const item=await readFileForAI(file);
+      photoBin.push(item);
+    }catch(err){
+      errors.push(err.message);
+    }
+  }
+  renderBin();
+  if(errors.length) toast('⚠️ '+errors[0], 4000);
 }
 
 function removeFromBin(idx){
@@ -1994,13 +2092,13 @@ function removeFromBin(idx){
 function renderBin(){
   const grid=document.getElementById('bin-grid');
   const badge=document.getElementById('bin-count-badge');
-  if(badge) badge.textContent=photoBin.length+' 張';
+  if(badge) badge.textContent=photoBin.length+' 個';
   if(!grid) return;
   if(!photoBin.length){
     grid.innerHTML='';
     return;
   }
-  const hasHeic=photoBin.some(img=>img.name.toLowerCase().endsWith('.heic')||img.name.toLowerCase().endsWith('.heif'));
+  const hasHeic=photoBin.some(img=>(img.name||'').toLowerCase().match(/\.heic$|\.heif$/));
   grid.innerHTML=(hasHeic?`
     <div style="width:100%;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;font-size:13px;color:#92400E;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px">
       <span style="flex-shrink:0;font-size:16px">⚠️</span>
@@ -2010,14 +2108,33 @@ function renderBin(){
         <span style="opacity:.7">或：上傳前在 Mac 用「預覽程式」另存為 JPEG</span>
       </div>
     </div>`:'')
-  +photoBin.map((img,i)=>`
+  +photoBin.map((img,i)=>{
+    const isHeic=(img.name||'').toLowerCase().match(/\.heic$|\.heif$/);
+    const kind=img.kind||'image';
+    let preview;
+    if(kind==='image' && img.dataUrl && !isHeic){
+      preview=`<img src="${img.dataUrl}" style="width:104px;height:90px;object-fit:cover;display:block">`;
+    } else if(kind==='pdf'){
+      preview=`<div style="width:104px;height:90px;background:#FDF0EE;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+          <span style="font-size:26px">📕</span>
+          <span style="font-size:10px;color:var(--red);font-weight:700">PDF</span>
+        </div>`;
+    } else if(kind==='text'){
+      const preview15=(img.text||'').slice(0,40).replace(/\s+/g,' ');
+      preview=`<div style="width:104px;height:90px;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px" title="${escH(preview15)}…">
+          <span style="font-size:24px">📄</span>
+          <span style="font-size:9px;color:var(--sage);font-weight:700">文字檔</span>
+          <span style="font-size:8px;color:var(--muted)">${(img.text||'').length} 字</span>
+        </div>`;
+    } else {
+      preview=`<div style="width:104px;height:90px;background:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+          <span style="font-size:22px;opacity:.4">🖼️</span>
+          <span style="font-size:10px;color:var(--muted);font-weight:700">HEIC</span>
+        </div>`;
+    }
+    return `
     <div style="flex-shrink:0;border-radius:10px;overflow:hidden;border:2px solid var(--border2);box-shadow:0 1px 6px rgba(28,30,34,.08);width:104px">
-      ${img.dataUrl&&!img.name.toLowerCase().match(/\.heic$|\.heif$/)
-        ?`<img src="${img.dataUrl}" style="width:104px;height:90px;object-fit:cover;display:block">`
-        :`<div style="width:104px;height:90px;background:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
-            <span style="font-size:22px;opacity:.4">🖼️</span>
-            <span style="font-size:10px;color:var(--muted);font-weight:700">HEIC</span>
-          </div>`}
+      ${preview}
       <button onclick="removeFromBin(${i})"
         style="position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(176,58,46,.85);color:#fff;font-size:11px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center">✕</button>
       <div style="padding:5px 6px;background:var(--cream);border-top:1px solid var(--border2)">
@@ -2028,10 +2145,10 @@ function renderBin(){
           onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}"
           style="font-size:11px;color:var(--ink2);font-family:'Noto Sans TC',sans-serif;outline:none;min-height:16px;word-break:break-all;cursor:text;border-bottom:1px dashed transparent;transition:border .15s"
           onfocus="this.style.borderBottomColor='var(--sage)'"
-          onblur2="this.style.borderBottomColor='transparent'"
           >${escH(img.label||img.name)}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   // 修正絕對定位的刪除按鈕需要相對父元素
   grid.querySelectorAll('[style*="flex-shrink:0"]').forEach(el=>el.style.position='relative');
 }
@@ -2057,12 +2174,12 @@ function toggleBinPick(el){
   const resetBtn=document.getElementById('sec-reset-btn');
   if(btn){
     btn.style.display=totalSel>0?'flex':'none';
-    btn.textContent=`🤖 開始辨識（${totalSel} 張）`;
+    btn.textContent=`🤖 開始辨識（${totalSel} 個）`;
   }
   if(statusEl && totalSel>0){
     statusEl.style.display='flex';
     document.getElementById('sec-status-icon').textContent='🟡';
-    document.getElementById('sec-status-msg').textContent=`已選 ${totalSel} 張，按下「開始辨識」`;
+    document.getElementById('sec-status-msg').textContent=`已選 ${totalSel} 個，按下「開始辨識」`;
   }
   if(resetBtn) resetBtn.style.display='flex';
 }
@@ -2091,7 +2208,7 @@ function switchSecSrc(src){
     const statusEl=document.getElementById('sec-status');
     if(btn){
       btn.style.display=selected>0?'flex':'none';
-      btn.textContent=`🤖 開始辨識（${selected} 張）`;
+      btn.textContent=`🤖 開始辨識（${selected} 個）`;
     }
     if(statusEl) statusEl.style.display=selected>0?'flex':'none';
   }
@@ -2366,7 +2483,7 @@ async function showSectionAIScan(sectionName){
         <!-- Header -->
         <div style="background:var(--ink);padding:20px 24px 16px;border-radius:19px 19px 0 0;position:relative">
           <div style="font-size:15px;font-weight:800;color:var(--cream);margin-bottom:4px">📷 AI 掃描：${escH(sectionName)}</div>
-          <div style="font-size:12px;color:rgba(240,235,225,.45)">上傳照片，AI 只填入此區的 ${secScanFields.length} 個欄位</div>
+          <div style="font-size:12px;color:rgba(240,235,225,.45)">上傳圖片/PDF/文字檔，AI 只填入此區的 ${secScanFields.length} 個欄位</div>
           ${noteText?`<div style="margin-top:10px;padding:9px 13px;background:rgba(255,255,255,.07);border-radius:8px;border-left:3px solid rgba(240,235,225,.3)">
             <div style="font-size:10px;font-weight:700;color:rgba(240,235,225,.4);letter-spacing:.6px;text-transform:uppercase;margin-bottom:4px">📋 AI 判讀備註</div>
             <div style="font-size:13px;color:rgba(240,235,225,.75);line-height:1.6">${escH(noteText)}</div>
@@ -2408,10 +2525,10 @@ async function showSectionAIScan(sectionName){
             ${photoBin.length===0?`
               <div style="text-align:center;padding:24px;background:var(--cream);border-radius:10px;color:var(--muted)">
                 <div style="font-size:24px;margin-bottom:8px;opacity:.4">🗂️</div>
-                <div style="font-size:13px;font-weight:600">暫存區尚無照片</div>
-                <div style="font-size:12px;margin-top:4px">請先將照片拖入問卷頁面的「照片暫存區」</div>
+                <div style="font-size:13px;font-weight:600">暫存區尚無檔案</div>
+                <div style="font-size:12px;margin-top:4px">請先將照片拖入問卷頁面的「檔案暫存區」</div>
               </div>`:`
-              <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">點選要使用的照片（可多選）</div>
+              <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">點選要使用的檔案（可多選）</div>
               <div style="display:flex;flex-wrap:wrap;gap:10px">
                 ${photoBin.map((img,i)=>`
                   <div class="bin-pick-thumb" data-idx="${i}" onclick="toggleBinPick(this)"
@@ -2423,7 +2540,7 @@ async function showSectionAIScan(sectionName){
                     <div style="padding:4px 6px;font-size:10px;color:var(--muted);font-family:'Noto Sans TC',sans-serif;background:var(--cream);text-align:center;word-break:break-all;line-height:1.4">${escH(img.label||img.name)}</div>
                   </div>`).join('')}
               </div>
-              <div style="font-size:12px;color:var(--muted);margin-top:8px">已選 <span id="bin-pick-count">0</span> 張</div>`}
+              <div style="font-size:12px;color:var(--muted);margin-top:8px">已選 <span id="bin-pick-count">0</span> 個</div>`}
           </div>
 
           <!-- 重新上傳面板（預設隱藏） -->
@@ -2435,14 +2552,14 @@ async function showSectionAIScan(sectionName){
             ondragleave="this.style.background='var(--card)';this.style.borderColor='var(--border)'"
             ondrop="handleSecDrop(event)">
             <div style="font-size:28px;margin-bottom:6px;opacity:.6">📸</div>
-            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此上傳照片（可多張）</div>
-            <div style="font-size:12px;color:var(--muted)">JPG / PNG ・ 最多 8 張</div>
-            <input type="file" id="sec-file-input" accept="image/*" multiple style="display:none" onchange="handleSecFiles(this)">
+            <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此上傳檔案（可多個）</div>
+            <div style="font-size:12px;color:var(--muted)">圖片 / PDF / TXT / Word ・ 最多 8 個</div>
+            <input type="file" id="sec-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log" multiple style="display:none" onchange="handleSecFiles(this)">
           </div>
 
           <!-- 縮圖列 -->
           <div id="sec-thumbs" style="display:none;margin-bottom:14px">
-            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選 <span id="sec-img-count"></span> 張照片</div>
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選 <span id="sec-img-count"></span> 個檔案</div>
             <div id="sec-thumbs-grid" style="display:flex;gap:8px;flex-wrap:wrap"></div>
           </div>
           </div><!-- end sec-upload-panel -->
@@ -2480,34 +2597,50 @@ function saveSecGeminiKey(){
 function handleSecDrop(e){
   e.preventDefault();
   document.getElementById('sec-upload-area').style.background='var(--card)';
-  const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));
+  const files=[...e.dataTransfer.files];
   if(files.length) processSecFiles(files);
 }
 function handleSecFiles(input){
-  const files=[...input.files].filter(f=>f.type.startsWith('image/'));
+  const files=[...input.files];
   if(files.length) processSecFiles(files);
 }
-function processSecFiles(files){
+async function processSecFiles(files){
   secScanImages=[];
   const toLoad=files.slice(0,8);
-  let done=0;
-  toLoad.forEach((file,i)=>{
-    const r=new FileReader();
-    r.onload=e=>{
-      secScanImages[i]={base64:e.target.result.split(',')[1],mimeType:file.type||'image/jpeg',dataUrl:e.target.result};
-      done++;
-      if(done===toLoad.length) renderSecThumbs();
-    };
-    r.readAsDataURL(file);
-  });
+  const errors=[];
+  for(const file of toLoad){
+    try{
+      const item=await readFileForAI(file);
+      secScanImages.push(item);
+    }catch(err){ errors.push(err.message); }
+  }
+  if(errors.length) toast('⚠️ '+errors[0], 4000);
+  if(secScanImages.length) renderSecThumbs();
 }
 function renderSecThumbs(){
   const grid=document.getElementById('sec-thumbs-grid');
-  grid.innerHTML=secScanImages.filter(Boolean).map((img,i)=>`
-    <div style="position:relative;width:72px;height:72px;flex-shrink:0">
-      <img src="${img.dataUrl}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">
+  grid.innerHTML=secScanImages.filter(Boolean).map((img,i)=>{
+    const kind=img.kind||'image';
+    const isHeic=(img.name||'').toLowerCase().match(/\.heic$|\.heif$/);
+    let inner;
+    if(kind==='image' && img.dataUrl && !isHeic){
+      inner=`<img src="${img.dataUrl}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">`;
+    } else if(kind==='pdf'){
+      inner=`<div style="width:72px;height:72px;border-radius:8px;border:2px solid var(--red-border);background:#FDF0EE;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+        <span style="font-size:22px">📕</span><span style="font-size:9px;color:var(--red);font-weight:700">PDF</span></div>`;
+    } else if(kind==='text'){
+      inner=`<div style="width:72px;height:72px;border-radius:8px;border:2px solid #C5E0D8;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+        <span style="font-size:20px">📄</span><span style="font-size:9px;color:var(--sage);font-weight:700">文字</span></div>`;
+    } else {
+      inner=`<div style="width:72px;height:72px;border-radius:8px;border:2px solid var(--border);background:var(--cream);display:flex;align-items:center;justify-content:center"><span style="font-size:20px;opacity:.4">🖼️</span></div>`;
+    }
+    return `
+    <div style="position:relative;width:72px;flex-shrink:0" title="${escH(img.name||'')}">
+      ${inner}
       <button onclick="removeSecImg(${i})" style="position:absolute;top:-5px;right:-5px;width:18px;height:18px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:10px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center">✕</button>
-    </div>`).join('');
+      <div style="font-size:9px;color:var(--muted);text-align:center;margin-top:3px;word-break:break-all;line-height:1.3;max-height:24px;overflow:hidden">${escH((img.name||'').slice(0,14))}</div>
+    </div>`;
+  }).join('');
   document.getElementById('sec-img-count').textContent=secScanImages.filter(Boolean).length;
   document.getElementById('sec-thumbs').style.display='';
   document.getElementById('sec-upload-area').style.display='none';
@@ -2549,7 +2682,7 @@ async function runSecAIScan(){
   let imgs;
   if(binMode){
     const selected=document.querySelectorAll('.bin-pick-thumb.selected');
-    if(!selected.length){ toast('請先點選暫存區的照片'); return; }
+    if(!selected.length){ toast('請先點選暫存區的檔案'); return; }
     imgs=[...selected].map(el=>photoBin[parseInt(el.dataset.idx)]).filter(Boolean);
   } else {
     imgs=secScanImages.filter(Boolean);
@@ -2559,18 +2692,14 @@ async function runSecAIScan(){
   if(!apiKey){ toast('請先輸入 Gemini API Key'); return; }
 
   const btn=document.getElementById('sec-scan-btn');
-  btn.disabled=true; btn.textContent=`⏳ 辨識中（${imgs.length} 張）…`;
-  setSecStatus('loading',`Gemini 正在分析 ${imgs.length} 張照片，請稍候…`);
+  btn.disabled=true; btn.textContent=`⏳ 辨識中（${imgs.length} 個檔案）…`;
+  setSecStatus('loading',`Gemini 正在分析 ${imgs.length} 個檔案，請稍候…`);
 
   const fieldList=secScanFields.map(f=>`- ${f.label}（類型：${f.type}${f.options?'，選項：'+f.options:''}）`).join('\n');
 
   try{
-    const parts=[];
-    imgs.forEach((img,i)=>{
-      parts.push({text:`[第 ${i+1} 張圖片]`});
-      parts.push({inline_data:{mime_type:img.mimeType,data:img.base64}});
-    });
-    parts.push({text:`你是醫療資料萃取助理。請從以上 ${imgs.length} 張圖片中，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。select 類型只回覆選項中完全相符的值。不要 markdown。`});
+    const parts=filesToGeminiParts(imgs);
+    parts.push({text:`你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。select 類型只回覆選項中完全相符的值。不要 markdown。`});
 
     const resp=await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -2708,44 +2837,54 @@ function resetAIScan(){
 function handleAIDrop(e){
   e.preventDefault();
   document.getElementById('ai-upload-area').style.background='#fff';
-  const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));
+  const files=[...e.dataTransfer.files];
   if(files.length) processAIFiles(files);
 }
 function handleAIFiles(input){
-  const files=[...input.files].filter(f=>f.type.startsWith('image/'));
+  const files=[...input.files];
   if(files.length) processAIFiles(files);
 }
 
-function processAIFiles(files){
+async function processAIFiles(files){
   aiImages=[];
   const MAX=8;
   const toLoad=files.slice(0,MAX);
-  let done=0;
-  toLoad.forEach((file,i)=>{
-    const reader=new FileReader();
-    reader.onload=e=>{
-      aiImages[i]={
-        base64:e.target.result.split(',')[1],
-        mimeType:file.type||'image/jpeg',
-        dataUrl:e.target.result,
-        name:file.name
-      };
-      done++;
-      if(done===toLoad.length) renderThumbs();
-    };
-    reader.readAsDataURL(file);
-  });
+  const errors=[];
+  for(const file of toLoad){
+    try{
+      const item=await readFileForAI(file);
+      aiImages.push(item);
+    }catch(err){ errors.push(err.message); }
+  }
+  if(errors.length) toast('⚠️ '+errors[0], 4000);
+  if(aiImages.length) renderThumbs();
 }
 
 function renderThumbs(){
   const grid=document.getElementById('ai-thumbs-grid');
-  grid.innerHTML=aiImages.filter(Boolean).map((img,i)=>`
-    <div style="position:relative;width:80px;height:80px;flex-shrink:0">
-      <img src="${img.dataUrl}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">
+  grid.innerHTML=aiImages.filter(Boolean).map((img,i)=>{
+    const kind=img.kind||'image';
+    const isHeic=(img.name||'').toLowerCase().match(/\.heic$|\.heif$/);
+    let inner;
+    if(kind==='image' && img.dataUrl && !isHeic){
+      inner=`<img src="${img.dataUrl}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">`;
+    } else if(kind==='pdf'){
+      inner=`<div style="width:80px;height:80px;border-radius:8px;border:2px solid var(--red-border);background:#FDF0EE;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+        <span style="font-size:24px">📕</span><span style="font-size:9px;color:var(--red);font-weight:700">PDF</span></div>`;
+    } else if(kind==='text'){
+      inner=`<div style="width:80px;height:80px;border-radius:8px;border:2px solid #C5E0D8;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+        <span style="font-size:22px">📄</span><span style="font-size:9px;color:var(--sage);font-weight:700">${(img.text||'').length} 字</span></div>`;
+    } else {
+      inner=`<div style="width:80px;height:80px;border-radius:8px;border:2px solid var(--border);background:var(--cream);display:flex;align-items:center;justify-content:center"><span style="font-size:22px;opacity:.4">🖼️</span></div>`;
+    }
+    return `
+    <div style="position:relative;width:80px;flex-shrink:0" title="${escH(img.name||'')}">
+      ${inner}
       <button onclick="removeAIImg(${i})" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:var(--red);color:#fff;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>
-      <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.5);color:#fff;font-size:9px;padding:2px 4px;border-radius:0 0 6px 6px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap">${i+1}</div>
-    </div>`).join('');
-  document.getElementById('ai-img-count').textContent=`（${aiImages.filter(Boolean).length} 張）`;
+      <div style="font-size:9px;color:var(--muted);text-align:center;margin-top:3px;word-break:break-all;line-height:1.3;max-height:24px;overflow:hidden">${escH((img.name||'').slice(0,14))}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('ai-img-count').textContent=`（${aiImages.filter(Boolean).length} 個）`;
   document.getElementById('ai-upload-area').style.display='none';
   document.getElementById('ai-thumbs').style.display='';
   document.getElementById('ai-result').style.display='none';
@@ -2769,7 +2908,7 @@ function setAIStatus(state,msg){
 
 async function startAIScan(){
   const imgs=aiImages.filter(Boolean);
-  if(!imgs.length){toast('請先選擇圖片');return;}
+  if(!imgs.length){toast('請先選擇檔案');return;}
   const apiKey=getGeminiKey();
   if(!apiKey){toast('請先輸入 Gemini API Key');return;}
 
@@ -2778,25 +2917,21 @@ async function startAIScan(){
   const fieldList=fields.map(f=>`- ${f.label}（類型：${f.type}${f.options?'，選項：'+f.options:''}）`).join('\n');
 
   const btn=document.getElementById('ai-scan-btn');
-  btn.disabled=true;btn.textContent=`🤖 辨識中（${imgs.length} 張）...`;
-  setAIStatus('loading',`Gemini 正在分析 ${imgs.length} 張病歷照片，請稍候...`);
+  btn.disabled=true;btn.textContent=`🤖 辨識中（${imgs.length} 個檔案）...`;
+  setAIStatus('loading',`Gemini 正在分析 ${imgs.length} 個病歷檔案，請稍候...`);
 
   try{
-    // 組合多張圖片的 parts
-    const parts=[];
-    imgs.forEach((img,i)=>{
-      parts.push({text:`[第 ${i+1} 張圖片]`});
-      parts.push({inline_data:{mime_type:img.mimeType,data:img.base64}});
-    });
+    // 組合圖片 / PDF / 文字檔的 parts
+    const parts=filesToGeminiParts(imgs);
     parts.push({text:`
-你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 張病歷圖片，綜合所有圖片的內容，從中萃取資訊並對應到以下問卷欄位。
+你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
 
 問卷欄位清單：
 ${fieldList}
 
-請以 JSON 格式回覆，key 為欄位名稱，value 為從圖片中找到的對應內容。
+請以 JSON 格式回覆，key 為欄位名稱，value 為從附件中找到的對應內容。
 規則：
-- 如果多張圖片有同一欄位的資料，以最完整或最新的為準
+- 如果多個附件有同一欄位的資料，以最完整或最新的為準
 - 如果沒有找到某欄位，請不要包含該 key
 - 日期請用 YYYY-MM-DD 格式
 - select 類型請只回覆選項中完全相符的其中一個

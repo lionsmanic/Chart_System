@@ -1524,6 +1524,7 @@ async function vCase(){
     <button class="btn btn-ghost btn-sm" onclick="expandAllSections()" title="展開所有分區">全展開</button>
     <button class="btn btn-ghost btn-sm" onclick="collapseAllSections()" title="收起所有分區">全收起</button>
     <button class="btn btn-ghost" onclick="applyDefaultsToCase()" title="只填入空白欄位，已填的不會洗掉">💡 套用預設值</button>
+    <button class="btn btn-ghost" onclick="showFullScan()" title="用暫存區檔案，一次掃描所有分區的欄位">🚀 全區 AI 掃描</button>
     <button class="btn btn-ghost" onclick="showAIScan()" title="拍照上傳病歷，AI自動填入欄位">📷 AI 掃描病歷</button>
     <button class="btn btn-danger btn-sm" onclick="delCase('${c.id}')">🗑️ 刪除</button>
     <button class="btn btn-success" onclick="saveCase()">💾 儲存</button>`;
@@ -2098,7 +2099,7 @@ function renderBin(){
     grid.innerHTML='';
     return;
   }
-  const hasHeic=photoBin.some(img=>(img.name||'').toLowerCase().match(/\.heic$|\.heif$/));
+  const hasHeic=photoBin.some(img=>isHeicName(img.name));
   grid.innerHTML=(hasHeic?`
     <div style="width:100%;padding:10px 14px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;font-size:13px;color:#92400E;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px">
       <span style="flex-shrink:0;font-size:16px">⚠️</span>
@@ -2109,7 +2110,7 @@ function renderBin(){
       </div>
     </div>`:'')
   +photoBin.map((img,i)=>{
-    const isHeic=(img.name||'').toLowerCase().match(/\.heic$|\.heif$/);
+    const isHeic=isHeicName(img.name);
     const kind=img.kind||'image';
     let preview;
     if(kind==='image' && img.dataUrl && !isHeic){
@@ -2160,15 +2161,34 @@ function updateBinLabel(idx,el){
 
 function toggleBinPick(el){
   const sel=el.classList.contains('selected');
-  el.classList.toggle('selected',!sel);
-  el.style.borderColor=!sel?'var(--sage)':'var(--border)';
-  el.style.boxShadow=!sel?'0 0 0 2px var(--sage)':'none';
+  setBinPickState(el, !sel);
+  syncBinPickUI();
+}
+
+// 設定單一縮圖的勾選狀態
+function setBinPickState(el, on){
+  el.classList.toggle('selected', on);
+  el.style.borderColor = on?'var(--sage)':'var(--border)';
+  el.style.boxShadow = on?'0 0 0 2px var(--sage)':'none';
   const check=el.querySelector('.pick-check');
-  if(check){ check.textContent=!sel?'✓':'　'; check.style.background=!sel?'var(--sage)':'rgba(255,255,255,.85)'; check.style.color=!sel?'#fff':''; }
+  if(check){
+    check.textContent = on?'✓':'　';
+    check.style.background = on?'var(--sage)':'rgba(255,255,255,.85)';
+    check.style.color = on?'#fff':'';
+  }
+}
+
+// 全選 / 全不選暫存區檔案
+function toggleAllBinPick(on){
+  document.querySelectorAll('.bin-pick-thumb').forEach(el=>setBinPickState(el,on));
+  syncBinPickUI();
+}
+
+// 依目前勾選數同步按鈕與狀態列
+function syncBinPickUI(){
   const totalSel=document.querySelectorAll('.bin-pick-thumb.selected').length;
   const count=document.getElementById('bin-pick-count');
   if(count) count.textContent=totalSel;
-  // 同步掃描按鈕
   const btn=document.getElementById('sec-scan-btn');
   const statusEl=document.getElementById('sec-status');
   const resetBtn=document.getElementById('sec-reset-btn');
@@ -2176,12 +2196,16 @@ function toggleBinPick(el){
     btn.style.display=totalSel>0?'flex':'none';
     btn.textContent=`🤖 開始辨識（${totalSel} 個）`;
   }
-  if(statusEl && totalSel>0){
-    statusEl.style.display='flex';
-    document.getElementById('sec-status-icon').textContent='🟡';
-    document.getElementById('sec-status-msg').textContent=`已選 ${totalSel} 個，按下「開始辨識」`;
+  if(statusEl){
+    if(totalSel>0){
+      statusEl.style.display='flex';
+      document.getElementById('sec-status-icon').textContent='🟡';
+      document.getElementById('sec-status-msg').textContent=`已選 ${totalSel} 個，按下「開始辨識」`;
+    } else {
+      statusEl.style.display='none';
+    }
   }
-  if(resetBtn) resetBtn.style.display='flex';
+  if(resetBtn) resetBtn.style.display=totalSel>0?'flex':'none';
 }
 
 function switchSecSrc(src){
@@ -2458,6 +2482,345 @@ function applyDerive(){
   toast(`✅ 已套用 ${count} 個推導結果`);
 }
 
+// ── 🚀 全區 AI 掃描（一次掃所有分區）────────────────────────────────
+let fullScanResult={};     // {fid: value}
+let fullScanItems=[];      // [{field, value, currentVal, section}]
+
+async function showFullScan(){
+  const p=await dbGet('projects',PID);
+  const allFields=p.fields||DEFAULT_FIELDS;
+  const notes=p.sectionNotes||{};
+  fullScanResult={}; fullScanItems=[];
+
+  // 依分區分組
+  const secs=[];
+  const seen=new Set();
+  allFields.forEach(f=>{ if(!seen.has(f.section)){ secs.push(f.section); seen.add(f.section); } });
+
+  const secList=secs.map(s=>{
+    const cnt=allFields.filter(f=>f.section===s).length;
+    const note=(notes[s]||'').trim();
+    const skip=/不需拍照|不用拍|無需拍照|不必拍/.test(note.replace(/\s+/g,''));
+    return {name:s, count:cnt, note, skip};
+  });
+
+  document.getElementById('full-scan-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="full-scan-modal" onclick="if(event.target.id==='full-scan-modal')closeFullScan()">
+      <div class="modal" style="max-width:600px">
+        <div style="background:linear-gradient(135deg,var(--sage),var(--sage2));padding:20px 24px 16px;border-radius:19px 19px 0 0;color:#fff;position:relative;flex-shrink:0">
+          <div style="font-size:16px;font-weight:800;margin-bottom:4px">🚀 全區 AI 掃描</div>
+          <div style="font-size:12px;opacity:.85">一次分析所有分區的欄位 · 依各分區「AI 判讀備註」精準對應</div>
+          <button onclick="closeFullScan()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
+        </div>
+        <div class="modal-bd">
+
+          <!-- 步驟一：選檔案 -->
+          <div style="font-size:12px;font-weight:800;color:var(--sage);letter-spacing:.5px;margin-bottom:8px">① 選擇要分析的檔案</div>
+          ${photoBin.length===0?`
+            <div style="text-align:center;padding:22px;background:var(--cream);border-radius:10px;color:var(--muted);margin-bottom:8px">
+              <div style="font-size:24px;margin-bottom:8px;opacity:.4">🗂️</div>
+              <div style="font-size:13px;font-weight:600">檔案暫存區尚無檔案</div>
+              <div style="font-size:12px;margin-top:4px">請先關閉此視窗，把所有病歷檔案（圖片/PDF/Word/文字）拖入「檔案暫存區」</div>
+            </div>`:`
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <span style="font-size:12px;color:var(--muted)">共 ${photoBin.length} 個檔案</span>
+              <div style="display:flex;gap:8px">
+                <button onclick="toggleAllFullPick(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:var(--sage-light);border:1px solid var(--sage);border-radius:6px;padding:3px 10px;cursor:pointer">全選</button>
+                <button onclick="toggleAllFullPick(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">全不選</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:9px;margin-bottom:6px">
+              ${photoBin.map((img,i)=>{
+                const kind=img.kind||'image';
+                const nlow=(img.name||'').toLowerCase(); const isHeic=nlow.endsWith('.heic')||nlow.endsWith('.heif');
+                let inner;
+                if(kind==='image'&&img.dataUrl&&!isHeic){
+                  inner=`<img src="${img.dataUrl}" style="width:78px;height:78px;object-fit:cover;display:block">`;
+                } else if(kind==='pdf'){
+                  inner=`<div style="width:78px;height:78px;background:#FDF0EE;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><span style="font-size:22px">📕</span><span style="font-size:9px;color:var(--red);font-weight:700">PDF</span></div>`;
+                } else if(kind==='text'){
+                  inner=`<div style="width:78px;height:78px;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><span style="font-size:20px">📄</span><span style="font-size:9px;color:var(--sage);font-weight:700">文字</span></div>`;
+                } else {
+                  inner=`<div style="width:78px;height:78px;background:var(--cream);display:flex;align-items:center;justify-content:center"><span style="font-size:20px;opacity:.4">🖼️</span></div>`;
+                }
+                return `
+                <div class="full-pick-thumb selected" data-idx="${i}" onclick="toggleFullPick(this)"
+                  title="${escH(img.name||'')}"
+                  style="position:relative;width:78px;flex-shrink:0;cursor:pointer;border-radius:9px;overflow:hidden;border:2.5px solid var(--sage);box-shadow:0 0 0 2px var(--sage);transition:all .15s">
+                  ${inner}
+                  <div class="full-pick-check" style="position:absolute;top:4px;right:4px;width:19px;height:19px;border-radius:50%;background:var(--sage);color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">✓</div>
+                </div>`;
+              }).join('')}
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:16px">已選 <span id="full-pick-count" style="color:var(--sage);font-weight:700">${photoBin.length}</span> 個檔案</div>`}
+
+          <!-- 步驟二：選分區 -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:800;color:var(--sage);letter-spacing:.5px">② 選擇要掃描的分區</span>
+            <div style="display:flex;gap:8px">
+              <button onclick="toggleAllFullSec(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:var(--sage-light);border:1px solid var(--sage);border-radius:6px;padding:3px 10px;cursor:pointer">全選</button>
+              <button onclick="toggleAllFullSec(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">全不選</button>
+            </div>
+          </div>
+          <div style="border:1px solid var(--border2);border-radius:10px;overflow:hidden;margin-bottom:16px">
+            ${secList.map(s=>{
+              const color=allFields.find(f=>f.section===s.name)?.sectionColor||'#3E7265';
+              return `
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 13px;border-bottom:1px solid var(--border2);cursor:pointer;background:${s.skip?'var(--cream)':'var(--card)'}">
+                <input type="checkbox" class="full-sec-cb" data-sec="${escH(s.name)}" ${s.skip?'':'checked'}
+                  style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--sage);cursor:pointer">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+                    <span style="font-size:13px;font-weight:700;color:var(--ink)">${escH(s.name)}</span>
+                    <span style="font-size:11px;color:var(--muted)">${s.count} 個欄位</span>
+                    ${s.skip?'<span style="font-size:10px;background:var(--border2);color:var(--muted);padding:1px 8px;border-radius:9px;font-weight:700">標註不需拍照</span>':''}
+                  </div>
+                  ${s.note?`<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5;padding-left:15px">📋 ${escH(s.note.length>60?s.note.slice(0,60)+'…':s.note)}</div>`:''}
+                </div>
+              </label>`;
+            }).join('')}
+          </div>
+
+          <!-- 狀態 / 進度 -->
+          <div id="full-status" style="display:none;padding:12px 15px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);align-items:center;gap:10px;margin-bottom:14px">
+            <span id="full-status-icon">🟡</span>
+            <span id="full-status-msg">準備就緒</span>
+          </div>
+
+          <!-- 結果 -->
+          <div id="full-result-wrap" style="display:none">
+            <div style="font-size:13px;font-weight:800;color:var(--ink);margin-bottom:8px">📋 掃描結果（請確認後套用）</div>
+            <div id="full-result-list" style="background:var(--card);border-radius:10px;border:1px solid var(--border2);overflow:hidden"></div>
+          </div>
+
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeFullScan()">取消</button>
+          <button class="btn btn-primary" id="full-run-btn" onclick="runFullScan()" ${photoBin.length?'':'disabled style="opacity:.4;cursor:not-allowed"'}>🚀 開始全區掃描</button>
+          <button class="btn btn-success" id="full-apply-btn" onclick="applyFullScan()" style="display:none">✅ 套用勾選項目</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function closeFullScan(){
+  document.getElementById('full-scan-modal')?.remove();
+  fullScanResult={}; fullScanItems=[];
+}
+
+function toggleFullPick(el){
+  const on=!el.classList.contains('selected');
+  setFullPickState(el,on);
+  syncFullPickCount();
+}
+function setFullPickState(el,on){
+  el.classList.toggle('selected',on);
+  el.style.borderColor=on?'var(--sage)':'var(--border)';
+  el.style.boxShadow=on?'0 0 0 2px var(--sage)':'none';
+  const chk=el.querySelector('.full-pick-check');
+  if(chk){
+    chk.textContent=on?'✓':'';
+    chk.style.background=on?'var(--sage)':'rgba(255,255,255,.85)';
+    chk.style.color=on?'#fff':'';
+  }
+}
+function toggleAllFullPick(on){
+  document.querySelectorAll('.full-pick-thumb').forEach(el=>setFullPickState(el,on));
+  syncFullPickCount();
+}
+function syncFullPickCount(){
+  const n=document.querySelectorAll('.full-pick-thumb.selected').length;
+  const el=document.getElementById('full-pick-count');
+  if(el) el.textContent=n;
+}
+function toggleAllFullSec(on){
+  document.querySelectorAll('.full-sec-cb').forEach(cb=>cb.checked=on);
+}
+
+function setFullStatus(state,msg){
+  const icons={ready:'🟡',loading:'⏳',done:'✅',error:'❌'};
+  const el=document.getElementById('full-status');
+  if(!el) return;
+  el.style.display='flex';
+  document.getElementById('full-status-icon').textContent=icons[state]||'⏳';
+  document.getElementById('full-status-msg').textContent=msg;
+  el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
+}
+
+async function runFullScan(){
+  const apiKey=getGeminiKey();
+  if(!apiKey){ toast('請先設定 Gemini API Key（在「📷 AI 掃描病歷」視窗中）'); return; }
+
+  const picked=[...document.querySelectorAll('.full-pick-thumb.selected')]
+    .map(el=>photoBin[parseInt(el.dataset.idx)]).filter(Boolean);
+  if(!picked.length){ toast('請至少選一個檔案'); return; }
+
+  const secNames=[...document.querySelectorAll('.full-sec-cb:checked')].map(cb=>cb.dataset.sec);
+  if(!secNames.length){ toast('請至少選一個分區'); return; }
+
+  const p=await dbGet('projects',PID);
+  const allFields=p.fields||DEFAULT_FIELDS;
+  const notes=p.sectionNotes||{};
+
+  // 只掃選中的分區
+  const targetFields=allFields.filter(f=>secNames.includes(f.section));
+
+  const btn=document.getElementById('full-run-btn');
+  btn.disabled=true; btn.textContent='⏳ 掃描中…';
+  setFullStatus('loading',`Gemini 正在分析 ${picked.length} 個檔案、${secNames.length} 個分區（共 ${targetFields.length} 個欄位），請稍候…`);
+
+  // 依分區組出欄位規格，key 用「分區::欄位」避免同名衝突
+  const specBySection=secNames.map(sec=>{
+    const fs=allFields.filter(f=>f.section===sec);
+    const note=(notes[sec]||'').trim();
+    const lines=fs.map(f=>{
+      let s=`  - "${sec}::${f.label}"（類型：${f.type}`;
+      if(f.options) s+=`，可選值：${f.options}`;
+      s+='）';
+      return s;
+    }).join('\n');
+    return `【分區：${sec}】${note?`\n判讀提示：${note}`:''}\n${lines}`;
+  }).join('\n\n');
+
+  try{
+    const parts=filesToGeminiParts(picked);
+    parts.push({text:`
+你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
+
+${specBySection}
+
+請以 JSON 格式回覆：
+- key 必須完全使用上面引號中的字串（格式為「分區::欄位名稱」）
+- value 為從附件中找到的內容
+規則：
+- 沒找到的欄位請直接省略該 key，不要填空字串或「無」
+- 日期用 YYYY-MM-DD 格式
+- select 類型只回覆「可選值」中完全相符的其中一個
+- multiselect 類型多個值用 | 分隔
+- 多個附件有同一欄位資料時，以最完整或最新的為準
+- 只回覆 JSON，不要說明文字、不要 markdown`});
+
+    const resp=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
+    );
+    if(!resp.ok){ const err=await resp.json(); throw new Error(err.error?.message||`HTTP ${resp.status}`); }
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+
+    fullScanResult={}; fullScanItems=[];
+    for(const f of targetFields){
+      // 優先用 分區::欄位，找不到再退回純欄位名
+      let val=parsed[`${f.section}::${f.label}`];
+      if(val===undefined) val=parsed[f.label];
+      if(val===undefined||val===null||val===''||val==='無') continue;
+      val=String(val);
+      fullScanResult[f.id]=val;
+      const cur=formData[f.id];
+      fullScanItems.push({
+        field:f,
+        section:f.section,
+        value:val,
+        currentVal: cur===undefined||cur===null?'':String(cur)
+      });
+    }
+
+    if(!fullScanItems.length){
+      setFullStatus('error','找不到可對應的資料，請確認檔案內容或分區的「AI 判讀備註」描述');
+      btn.disabled=false; btn.textContent='🔄 重新掃描';
+      return;
+    }
+
+    renderFullScanResult(allFields);
+    document.getElementById('full-result-wrap').style.display='';
+    document.getElementById('full-apply-btn').style.display='inline-flex';
+    const owCount=fullScanItems.filter(it=>it.currentVal&&it.currentVal!==it.value).length;
+    setFullStatus('done',`掃描完成！共取得 ${fullScanItems.length} 個欄位${owCount?`（其中 ${owCount} 個已有資料，預設不勾選）`:''}`);
+
+  }catch(err){
+    setFullStatus('error','掃描失敗：'+err.message);
+  }
+  btn.disabled=false; btn.textContent='🔄 重新掃描';
+}
+
+function renderFullScanResult(allFields){
+  // 依分區分組顯示
+  const bySec={};
+  fullScanItems.forEach(it=>{ (bySec[it.section] ??= []).push(it); });
+
+  const owTotal=fullScanItems.filter(it=>it.currentVal&&it.currentVal!==it.value).length;
+
+  let html=`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--cream);border-bottom:1px solid var(--border2)">
+      <span style="font-size:12px;font-weight:700;color:var(--muted)">勾選要套用的欄位${owTotal?`　<span style="color:var(--red)">（${owTotal} 個已有資料）</span>`:''}</span>
+      <div style="display:flex;gap:10px">
+        <button onclick="toggleAllFullResult(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:none;border:none;cursor:pointer;padding:2px 0">全選</button>
+        <button onclick="toggleAllFullResult(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 0">全不選</button>
+      </div>
+    </div>`;
+
+  for(const sec of Object.keys(bySec)){
+    const color=allFields.find(f=>f.section===sec)?.sectionColor||'#3E7265';
+    html+=`
+      <div style="padding:7px 14px;background:${color}12;border-bottom:1px solid ${color}25;display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>
+        <span style="font-size:11px;font-weight:800;color:${color};letter-spacing:.6px;text-transform:uppercase;flex:1">${escH(sec)}</span>
+        <span style="font-size:11px;color:var(--muted)">${bySec[sec].length} 項</span>
+      </div>`;
+    html+=bySec[sec].map(({field,value,currentVal})=>{
+      const willOverwrite=currentVal&&currentVal!==value;
+      const curD=currentVal.replace(/\|/g,'、');
+      const newD=value.replace(/\|/g,'、');
+      return `
+      <label style="display:flex;align-items:flex-start;gap:11px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;${willOverwrite?'background:#FEF9F0':''}">
+        <input type="checkbox" class="full-res-cb" data-fid="${field.id}" ${willOverwrite?'':'checked'}
+          style="width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:${willOverwrite?'var(--red)':'var(--sage)'};cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">${escH(field.label)}</div>
+          ${willOverwrite?`
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+              <span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);padding:1px 7px;border-radius:9px;flex-shrink:0">原有資料</span>
+              <span style="font-size:13px;color:var(--muted);text-decoration:line-through;word-break:break-all">${escH(curD)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:10px;font-weight:700;color:#fff;background:var(--sage);padding:1px 7px;border-radius:9px;flex-shrink:0">AI 讀取</span>
+              <span style="font-size:14px;color:var(--ink);font-weight:700;word-break:break-all">${escH(newD)}</span>
+            </div>
+            <div style="font-size:11px;color:var(--red);margin-top:5px;font-weight:600">⚠️ 已有資料，確認 AI 讀的正確再打勾覆蓋</div>
+          `:`
+            <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(newD)}</div>
+          `}
+        </div>
+      </label>`;
+    }).join('');
+  }
+  document.getElementById('full-result-list').innerHTML=html;
+}
+
+function toggleAllFullResult(on){
+  document.querySelectorAll('.full-res-cb').forEach(cb=>cb.checked=on);
+}
+
+function applyFullScan(){
+  const checks=document.querySelectorAll('.full-res-cb:checked');
+  if(!checks.length){ toast('請至少勾選一個欄位'); return; }
+  let count=0;
+  checks.forEach(cb=>{
+    const fid=cb.dataset.fid;
+    const val=fullScanResult[fid];
+    if(val===undefined) return;
+    applyFieldValue(fid,val);
+    count++;
+  });
+  dirty=true;
+  document.getElementById('savebar').classList.add('on');
+  closeFullScan();
+  toast(`✅ 已套用 ${count} 個欄位，請確認後儲存`);
+}
+
 // ── 分區 AI 掃描 Modal ────────────────────────────────────────────────────
 let secScanImages = [];   // 分區掃描的圖片
 let secScanResult = {};   // 分區掃描結果
@@ -2528,12 +2891,18 @@ async function showSectionAIScan(sectionName){
                 <div style="font-size:13px;font-weight:600">暫存區尚無檔案</div>
                 <div style="font-size:12px;margin-top:4px">請先將照片拖入問卷頁面的「檔案暫存區」</div>
               </div>`:`
-              <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">點選要使用的檔案（可多選）</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:12px;font-weight:700;color:var(--muted)">點選要使用的檔案（可多選）</span>
+                <div style="display:flex;gap:8px">
+                  <button onclick="toggleAllBinPick(true)" style="font-size:11px;font-weight:700;color:var(--sage);background:var(--sage-light);border:1px solid var(--sage);border-radius:6px;padding:3px 10px;cursor:pointer">全選</button>
+                  <button onclick="toggleAllBinPick(false)" style="font-size:11px;font-weight:700;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer">全不選</button>
+                </div>
+              </div>
               <div style="display:flex;flex-wrap:wrap;gap:10px">
                 ${photoBin.map((img,i)=>`
                   <div class="bin-pick-thumb" data-idx="${i}" onclick="toggleBinPick(this)"
                     style="position:relative;width:90px;flex-shrink:0;cursor:pointer;border-radius:10px;overflow:hidden;border:2.5px solid var(--border);transition:all .18s">
-                    ${img.dataUrl&&!img.name.toLowerCase().match(/\.heic$|\.heif$/)
+                    ${img.dataUrl&&!isHeicName(img.name)
                       ?`<img src="${img.dataUrl}" style="width:90px;height:90px;object-fit:cover;display:block">`
                       :`<div style="width:90px;height:90px;background:var(--cream);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px"><span style="font-size:20px;opacity:.4">🖼️</span><span style="font-size:10px;color:var(--muted);font-weight:700">HEIC</span></div>`}
                     <div style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.85);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s" class="pick-check">　</div>
@@ -2621,7 +2990,7 @@ function renderSecThumbs(){
   const grid=document.getElementById('sec-thumbs-grid');
   grid.innerHTML=secScanImages.filter(Boolean).map((img,i)=>{
     const kind=img.kind||'image';
-    const isHeic=(img.name||'').toLowerCase().match(/\.heic$|\.heif$/);
+    const isHeic=isHeicName(img.name);
     let inner;
     if(kind==='image' && img.dataUrl && !isHeic){
       inner=`<img src="${img.dataUrl}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">`;
@@ -2864,7 +3233,7 @@ function renderThumbs(){
   const grid=document.getElementById('ai-thumbs-grid');
   grid.innerHTML=aiImages.filter(Boolean).map((img,i)=>{
     const kind=img.kind||'image';
-    const isHeic=(img.name||'').toLowerCase().match(/\.heic$|\.heif$/);
+    const isHeic=isHeicName(img.name);
     let inner;
     if(kind==='image' && img.dataUrl && !isHeic){
       inner=`<img src="${img.dataUrl}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid var(--border)">`;
@@ -4929,6 +5298,7 @@ function closeMobMenu(){
 }
 
 // ── Util ───────────────────────────────────────────────────────────────────
+function isHeicName(n){const x=String(n||'').toLowerCase();return x.endsWith('.heic')||x.endsWith('.heif');}
 function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function autoResizeTA(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
 

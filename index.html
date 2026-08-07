@@ -6,6 +6,7 @@
 <title>病例管理系統</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --ink:#1C1E22;--ink2:#2E3138;--sage:#3E7265;--sage2:#4E8A7A;--sage-light:#E8F3F0;
@@ -1664,8 +1665,8 @@ async function vCase(){
             style="border:1.5px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;background:var(--cream);transition:all .2s;margin-bottom:12px">
             <div style="font-size:26px;margin-bottom:6px;opacity:.5">📂</div>
             <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此或拖曳所有檔案到這裡</div>
-            <div style="font-size:12px;color:var(--muted)">支援 圖片 / PDF / TXT / Word(.docx) · 一次放入全部，再逐區分配給 AI</div>
-            <input type="file" id="bin-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log" multiple style="display:none" onchange="handleBinFiles(this)">
+            <div style="font-size:12px;color:var(--muted)">支援 圖片 / PDF / Word / Excel / 文字檔 · 一次放入全部，再逐區分配給 AI</div>
+            <input type="file" id="bin-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.xls,.xlsm,.rtf,.log" multiple style="display:none" onchange="handleBinFiles(this)">
           </div>
           <!-- 縮圖格 -->
           <div id="bin-grid" style="display:flex;flex-wrap:wrap;gap:10px"></div>
@@ -1695,8 +1696,8 @@ async function vCase(){
             ondrop="handleAIDrop(event)">
             <div style="font-size:32px;margin-bottom:8px;opacity:.6">📸</div>
             <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px">點此上傳病歷檔案（可一次選多個）</div>
-            <div style="font-size:12px;color:var(--muted)">支援 圖片 / PDF / TXT / Word(.docx) ・ 拖曳上傳 ・ 最多 8 個</div>
-            <input type="file" id="ai-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log" multiple style="display:none" onchange="handleAIFiles(this)">
+            <div style="font-size:12px;color:var(--muted)">支援 圖片 / PDF / Word / Excel / 文字檔 ・ 拖曳上傳 ・ 最多 8 個</div>
+            <input type="file" id="ai-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.xls,.xlsm,.rtf,.log" multiple style="display:none" onchange="handleAIFiles(this)">
           </div>
           <div id="ai-thumbs" style="display:none;margin-top:14px">
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">已選擇的檔案 <span id="ai-img-count"></span></div>
@@ -1966,7 +1967,9 @@ function detectFileKind(file){
   if(type==='application/pdf'||name.endsWith('.pdf')) return 'pdf';
   if(name.endsWith('.docx')||type==='application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx';
   if(name.endsWith('.doc')) return 'doc-legacy';
-  if(type.startsWith('text/')||/\.(txt|md|csv|tsv|json|rtf|log)$/.test(name)) return 'text';
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')||name.endsWith('.xlsm')||type.includes('spreadsheetml')||type==='application/vnd.ms-excel') return 'excel';
+  if(name.endsWith('.csv')||name.endsWith('.tsv')) return 'excel';
+  if(type.startsWith('text/')||/\.(txt|md|json|rtf|log)$/.test(name)) return 'text';
   return 'unknown';
 }
 
@@ -1998,6 +2001,41 @@ function readFileForAI(file){
             resolve({kind:'text', text:txt, name:file.name, mimeType:'text/plain'});
           })
           .catch(err=>reject(new Error(`Word 解析失敗：${err.message}`)));
+      };
+      r.onerror=()=>reject(new Error(`讀取失敗：${file.name}`));
+      r.readAsArrayBuffer(file);
+      return;
+    }
+
+    // Excel (.xlsx/.xls/.csv/.tsv) → 用 SheetJS 轉成文字表格
+    if(kind==='excel'){
+      if(typeof XLSX==='undefined'){
+        reject(new Error('Excel 解析元件尚未載入，請重新整理頁面再試'));
+        return;
+      }
+      const r=new FileReader();
+      r.onload=e=>{
+        try{
+          const wb=XLSX.read(e.target.result,{type:'array'});
+          let out='';
+          wb.SheetNames.forEach(sn=>{
+            const ws=wb.Sheets[sn];
+            // 轉成 CSV 樣式，保留欄列結構
+            const csv=XLSX.utils.sheet_to_csv(ws,{blankrows:false});
+            if(csv.trim()){
+              out += `【工作表：${sn}】\n${csv.trim()}\n\n`;
+            }
+          });
+          out=out.trim();
+          if(!out){ reject(new Error(`${file.name} 沒有可讀取的內容`)); return; }
+          // 避免超大表格塞爆 API（保留前 ~15000 字）
+          if(out.length>15000){
+            out=out.slice(0,15000)+'\n…（表格過長已截斷）';
+          }
+          resolve({kind:'text', text:out, name:file.name, mimeType:'text/plain', isExcel:true});
+        }catch(err){
+          reject(new Error(`Excel 解析失敗：${err.message}`));
+        }
       };
       r.onerror=()=>reject(new Error(`讀取失敗：${file.name}`));
       r.readAsArrayBuffer(file);
@@ -2041,7 +2079,8 @@ function filesToGeminiParts(items){
   for(const it of items){
     idx++;
     if(it.kind==='text'){
-      parts.push({text:`[附件 ${idx}：${it.name}（文字檔內容）]\n${it.text}\n[附件 ${idx} 結束]`});
+      const tag = it.isExcel ? '試算表 Excel/CSV 內容' : '文字檔內容';
+      parts.push({text:`[附件 ${idx}：${it.name}（${tag}）]\n${it.text}\n[附件 ${idx} 結束]`});
     } else {
       const label = it.kind==='pdf' ? `[附件 ${idx}：${it.name}（PDF）]` : `[附件 ${idx}：${it.name}（圖片）]`;
       parts.push({text:label});
@@ -2056,7 +2095,7 @@ function kindIcon(kind){
   return kind==='pdf'?'📕':kind==='text'?'📄':'🖼️';
 }
 
-const ACCEPT_ALL='image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log';
+const ACCEPT_ALL='image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.xls,.xlsm,.rtf,.log';
 
 function handleBinDrop(e){
   e.preventDefault();
@@ -2122,9 +2161,10 @@ function renderBin(){
         </div>`;
     } else if(kind==='text'){
       const preview15=(img.text||'').slice(0,40).replace(/\s+/g,' ');
-      preview=`<div style="width:104px;height:90px;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px" title="${escH(preview15)}…">
-          <span style="font-size:24px">📄</span>
-          <span style="font-size:9px;color:var(--sage);font-weight:700">文字檔</span>
+      const isXl=img.isExcel;
+      preview=`<div style="width:104px;height:90px;background:${isXl?'#EAF5EF':'#EEF7F4'};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px" title="${escH(preview15)}…">
+          <span style="font-size:24px">${isXl?'📊':'📄'}</span>
+          <span style="font-size:9px;color:var(--sage);font-weight:700">${isXl?'Excel':'文字檔'}</span>
           <span style="font-size:8px;color:var(--muted)">${(img.text||'').length} 字</span>
         </div>`;
     } else {
@@ -2540,7 +2580,7 @@ async function showFullScan(){
                 } else if(kind==='pdf'){
                   inner=`<div style="width:78px;height:78px;background:#FDF0EE;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><span style="font-size:22px">📕</span><span style="font-size:9px;color:var(--red);font-weight:700">PDF</span></div>`;
                 } else if(kind==='text'){
-                  inner=`<div style="width:78px;height:78px;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><span style="font-size:20px">📄</span><span style="font-size:9px;color:var(--sage);font-weight:700">文字</span></div>`;
+                  inner=`<div style="width:78px;height:78px;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><span style="font-size:20px">${img.isExcel?'📊':'📄'}</span><span style="font-size:9px;color:var(--sage);font-weight:700">${img.isExcel?'Excel':'文字'}</span></div>`;
                 } else {
                   inner=`<div style="width:78px;height:78px;background:var(--cream);display:flex;align-items:center;justify-content:center"><span style="font-size:20px;opacity:.4">🖼️</span></div>`;
                 }
@@ -2687,7 +2727,7 @@ async function runFullScan(){
   try{
     const parts=filesToGeminiParts(picked);
     parts.push({text:`
-你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
+你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
 
 ${specBySection}
 
@@ -2923,7 +2963,7 @@ async function showSectionAIScan(sectionName){
             <div style="font-size:28px;margin-bottom:6px;opacity:.6">📸</div>
             <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px">點此上傳檔案（可多個）</div>
             <div style="font-size:12px;color:var(--muted)">圖片 / PDF / TXT / Word ・ 最多 8 個</div>
-            <input type="file" id="sec-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.rtf,.log" multiple style="display:none" onchange="handleSecFiles(this)">
+            <input type="file" id="sec-file-input" accept="image/*,.pdf,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.xls,.xlsm,.rtf,.log" multiple style="display:none" onchange="handleSecFiles(this)">
           </div>
 
           <!-- 縮圖列 -->
@@ -2999,7 +3039,7 @@ function renderSecThumbs(){
         <span style="font-size:22px">📕</span><span style="font-size:9px;color:var(--red);font-weight:700">PDF</span></div>`;
     } else if(kind==='text'){
       inner=`<div style="width:72px;height:72px;border-radius:8px;border:2px solid #C5E0D8;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
-        <span style="font-size:20px">📄</span><span style="font-size:9px;color:var(--sage);font-weight:700">文字</span></div>`;
+        <span style="font-size:20px">${img.isExcel?'📊':'📄'}</span><span style="font-size:9px;color:var(--sage);font-weight:700">${img.isExcel?'Excel':'文字'}</span></div>`;
     } else {
       inner=`<div style="width:72px;height:72px;border-radius:8px;border:2px solid var(--border);background:var(--cream);display:flex;align-items:center;justify-content:center"><span style="font-size:20px;opacity:.4">🖼️</span></div>`;
     }
@@ -3068,7 +3108,7 @@ async function runSecAIScan(){
 
   try{
     const parts=filesToGeminiParts(imgs);
-    parts.push({text:`你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。select 類型只回覆選項中完全相符的值。不要 markdown。`});
+    parts.push({text:`你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。select 類型只回覆選項中完全相符的值。不要 markdown。`});
 
     const resp=await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -3242,7 +3282,7 @@ function renderThumbs(){
         <span style="font-size:24px">📕</span><span style="font-size:9px;color:var(--red);font-weight:700">PDF</span></div>`;
     } else if(kind==='text'){
       inner=`<div style="width:80px;height:80px;border-radius:8px;border:2px solid #C5E0D8;background:#EEF7F4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
-        <span style="font-size:22px">📄</span><span style="font-size:9px;color:var(--sage);font-weight:700">${(img.text||'').length} 字</span></div>`;
+        <span style="font-size:22px">${img.isExcel?'📊':'📄'}</span><span style="font-size:9px;color:var(--sage);font-weight:700">${img.isExcel?'Excel':(img.text||'').length+' 字'}</span></div>`;
     } else {
       inner=`<div style="width:80px;height:80px;border-radius:8px;border:2px solid var(--border);background:var(--cream);display:flex;align-items:center;justify-content:center"><span style="font-size:22px;opacity:.4">🖼️</span></div>`;
     }
@@ -3293,7 +3333,7 @@ async function startAIScan(){
     // 組合圖片 / PDF / 文字檔的 parts
     const parts=filesToGeminiParts(imgs);
     parts.push({text:`
-你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
+你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
 
 問卷欄位清單：
 ${fieldList}

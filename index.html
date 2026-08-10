@@ -2072,6 +2072,16 @@ function readFileForAI(file){
   });
 }
 
+// 取得目前 Project 的 AI 研究情境（時間錨點）作為 prompt 前綴
+async function aiContextPrefix(){
+  try{
+    const p=await dbGet('projects',PID);
+    const ctx=(p&&p.aiContext||'').trim();
+    if(!ctx) return '';
+    return `【本研究的重要背景與時間錨點 — 請務必嚴格遵守】\n${ctx}\n\n`;
+  }catch(e){ return ''; }
+}
+
 // 把一組檔案轉成 Gemini parts（圖片/PDF 用 inline_data，文字用 text）
 function filesToGeminiParts(items){
   const parts=[];
@@ -2725,9 +2735,9 @@ async function runFullScan(){
   }).join('\n\n');
 
   try{
+    const ctxPrefix=await aiContextPrefix();
     const parts=filesToGeminiParts(picked);
-    parts.push({text:`
-你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
+    parts.push({text:`${ctxPrefix}你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
 
 ${specBySection}
 
@@ -2737,6 +2747,7 @@ ${specBySection}
 規則：
 - 沒找到的欄位請直接省略該 key，不要填空字串或「無」
 - 日期用 YYYY-MM-DD 格式
+- 若上方有「時間錨點」說明，務必依該時間點區分術前/術後、治療前/後的數值，不要把不同時間點的數值混填
 - select 類型只回覆「可選值」中完全相符的其中一個
 - multiselect 類型多個值用 | 分隔
 - 多個附件有同一欄位資料時，以最完整或最新的為準
@@ -3107,8 +3118,9 @@ async function runSecAIScan(){
   const fieldList=secScanFields.map(f=>`- ${f.label}（類型：${f.type}${f.options?'，選項：'+f.options:''}）`).join('\n');
 
   try{
+    const ctxPrefix=await aiContextPrefix();
     const parts=filesToGeminiParts(imgs);
-    parts.push({text:`你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。select 類型只回覆選項中完全相符的值。不要 markdown。`});
+    parts.push({text:`${ctxPrefix}你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。若上方有「時間錨點」說明，務必依該時間點區分術前/術後數值，不要混填。select 類型只回覆選項中完全相符的值。不要 markdown。`});
 
     const resp=await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -3331,9 +3343,9 @@ async function startAIScan(){
 
   try{
     // 組合圖片 / PDF / 文字檔的 parts
+    const ctxPrefix=await aiContextPrefix();
     const parts=filesToGeminiParts(imgs);
-    parts.push({text:`
-你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
+    parts.push({text:`${ctxPrefix}你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
 
 問卷欄位清單：
 ${fieldList}
@@ -3343,6 +3355,7 @@ ${fieldList}
 - 如果多個附件有同一欄位的資料，以最完整或最新的為準
 - 如果沒有找到某欄位，請不要包含該 key
 - 日期請用 YYYY-MM-DD 格式
+- 若上方有「時間錨點」說明，務必依該時間點區分術前/術後、治療前/後的數值，欄位名稱中的 Pre/Post、before/after 是判斷依據，不要把不同時間點的數值混填
 - select 類型請只回覆選項中完全相符的其中一個
 - 只回覆 JSON，不要其他說明文字、不要 markdown`});
 
@@ -3792,6 +3805,7 @@ async function vSettings(pid){
   editSectionDerives=JSON.parse(JSON.stringify(p.sectionDerives||{}));
   editFieldLinks=JSON.parse(JSON.stringify(p.fieldLinks||[]));
   const defaultPhotoNote = p.defaultPhotoNote||'';
+  const aiContext = p.aiContext||'';
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
   document.getElementById('hactions').innerHTML=`
     <button class="btn btn-outline" onclick="goProject('${pid}')">← 返回</button>
@@ -3801,6 +3815,27 @@ async function vSettings(pid){
     <div style="max-width:760px">
       <div class="page-title">問卷欄位設定</div>
       <div class="page-sub">拖曳 ⠿ 調整欄位順序・點欄位名稱可直接編輯・可跨分區移動欄位</div>
+
+      <!-- 🧭 AI 研究情境 / 時間錨點 -->
+      <div class="card" style="margin-bottom:22px">
+        <div class="card-header">
+          <span style="font-weight:700;font-size:15px">🧭 AI 研究情境／時間錨點</span>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.7">
+            這段說明會在<strong>每次 AI 掃描時一併送給 Gemini</strong>，幫助它正確理解整份問卷的時間脈絡。<br>
+            特別適合有「術前 / 術後」「治療前 / 治療後」時間點的研究——明確指定<strong style="color:var(--sage)">時間錨點</strong>，AI 就不會把整份病歷的數值混填。
+          </div>
+          <textarea class="ftextarea" id="ai-context"
+            placeholder="例：本研究以「HIPEC 手術日（Primary_Cytoreduction_Date）」為時間錨點。&#10;- 「Pre-HIPEC」欄位 = HIPEC 手術「之前」最接近的數值&#10;- 「Post-HIPEC」欄位 = HIPEC 手術「之後」的數值&#10;- Neoadjuvant chemo 一律指 HIPEC 之前的化療&#10;- 復發/progression 指 HIPEC 之後才發生的&#10;- tumor marker 請依日期分辨是診斷時 / 術前 / nadir / progression"
+            oninput="autoResizeTA(this)"
+            style="min-height:120px"
+            >${escH(aiContext)}</textarea>
+          <div style="background:#FDF6E9;border:1px solid #E8D9B5;border-radius:9px;padding:10px 13px;margin-top:10px;font-size:12px;color:#7A5C1E;line-height:1.7">
+            💡 <strong>撰寫建議：</strong>把「以哪個日期為分界」「哪些欄位屬於術前、哪些屬於術後」「同名數值如何依時間區分」講清楚。欄位名稱裡的 Pre/Post 線索 AI 也會自動參考。
+          </div>
+        </div>
+      </div>
 
       <!-- 拍照清單補充備註預設文字 -->
       <div class="card" style="margin-bottom:22px">
@@ -4576,6 +4611,7 @@ async function saveSettings(pid){
   p.sectionNotes=editSectionNotes;
   p.sectionDerives=editSectionDerives;
   p.fieldLinks=editFieldLinks;
+  p.aiContext=document.getElementById('ai-context')?.value||'';
   p.defaultPhotoNote=document.getElementById('default-photo-note')?.value||'';
   await dbPut('projects',p);
   toast('✅ 設定已儲存（連動的病例會自動更新顯示）');
@@ -4705,6 +4741,7 @@ async function createProj(){
   let sectionDerives={};
   let fieldLinks=[];
   let defaultPhotoNote='';
+  let aiContext='';
 
   if(copyFromId){
     const src=await dbGet('projects',copyFromId);
@@ -4723,11 +4760,12 @@ async function createProj(){
         tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
       }));
       if(src.defaultPhotoNote) defaultPhotoNote=src.defaultPhotoNote;
+      if(src.aiContext) aiContext=src.aiContext;
       toast(`✅ 已複製「${src.name}」的欄位設定`);
     }
   }
 
-  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,sectionDerives,fieldLinks,defaultPhotoNote,createdAt:Date.now()});
+  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,sectionDerives,fieldLinks,aiContext,defaultPhotoNote,createdAt:Date.now()});
   closeMod();
   if(!copyFromId) toast('✅ Project 已建立');
   if(VIEW==='group' && topicId===GID) vGroup(); else vProjects();

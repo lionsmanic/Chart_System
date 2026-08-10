@@ -5316,7 +5316,7 @@ async function doImportJSON(input){
     const payload=JSON.parse(text);
     if(!payload.version||!payload.projects) throw new Error('格式錯誤');
 
-    let newCases=0, updCases=0, newProjs=0, newTopics=0;
+    let newCases=0, updCases=0, newProjs=0, newTopics=0, updProjs=0;
     // 先匯入 topics（v2+）
     for(const t of (payload.topics||[])){
       const exT=await dbGet('topics',t.id);
@@ -5326,7 +5326,26 @@ async function doImportJSON(input){
       const {cases,...proj}=projData;
       // 建立或更新 project
       const existing=await dbGet('projects',proj.id);
-      if(!existing){await dbPut('projects',proj);newProjs++;}
+      if(!existing){
+        await dbPut('projects',proj);newProjs++;
+      } else {
+        // 同 id 已存在 → 詢問是否更新欄位設定（保留原有病例）
+        const oldN=(existing.fields||[]).length;
+        const newN=(proj.fields||[]).length;
+        const ok=confirm(
+          `匯入的「${proj.name}」與現有 Project 相同（id 相符）。\n\n`+
+          `現有欄位數：${oldN}\n匯入欄位數：${newN}\n\n`+
+          `是否用匯入檔的「欄位設定、AI 情境、分區備註、連動規則」更新現有 Project？\n\n`+
+          `✅ 會更新：欄位、分區備註、AI 研究情境、連動規則、預設值\n`+
+          `🔒 不會動到：您現有的病例資料（照常保留）\n\n`+
+          `（按「取消」則保留現狀不更新此 Project）`
+        );
+        if(ok){
+          // 保留現有病例，只更新 project 設定本體
+          await dbPut('projects',proj);
+          updProjs++;
+        }
+      }
       // 合併病例：以 id 為準，若已存在則比較 updatedAt 取較新者
       for(const c of (cases||[])){
         const exCase=await dbGet('cases',c.id);
@@ -5340,10 +5359,10 @@ async function doImportJSON(input){
       }
     }
     resultEl.innerHTML=`<div style="color:var(--sage);font-weight:700;padding:10px 12px;background:#EEF7F4;border-radius:8px;font-size:13px">
-      ✅ 匯入完成！新增 ${newCases} 筆、更新 ${updCases} 筆病例${newProjs?`、新增 ${newProjs} 個 Project`:''}${newTopics?`、新增 ${newTopics} 個主題`:''}
+      ✅ 匯入完成！${newProjs?`新增 ${newProjs} 個 Project`:''}${updProjs?`${newProjs?'、':''}更新 ${updProjs} 個 Project 設定`:''}${(newCases||updCases)?`${(newProjs||updProjs)?'、':''}新增 ${newCases} 筆、更新 ${updCases} 筆病例`:''}${newTopics?`、新增 ${newTopics} 個主題`:''}${(!newProjs&&!updProjs&&!newCases&&!updCases&&!newTopics)?'沒有變更':''}
     </div>`;
     // 重新整理
-    setTimeout(()=>{closeSyncMod();render();},1500);
+    setTimeout(()=>{closeSyncMod();render();},1800);
   } catch(e){
     resultEl.innerHTML=`<div style="color:var(--red);font-weight:700;padding:10px 12px;background:var(--red-bg);border-radius:8px;font-size:13px">❌ 檔案格式錯誤，請確認是正確的 JSON 檔案</div>`;
   }

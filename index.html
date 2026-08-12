@@ -615,7 +615,7 @@ async function vProjects(){
   ` : `
     <button class="btn btn-ghost" onclick="enterSelectMode()" title="選取多個項目">☑ 選取</button>
     <button class="btn btn-ghost" onclick="showSyncModal()">🔄 匯出／匯入</button>
-    <button class="btn btn-ghost" onclick="exportAll()">📤 全部匯出CSV</button>
+    <button class="btn btn-ghost" onclick="exportAll()">📤 全部匯出 Excel</button>
     <button class="btn btn-ghost" onclick="showTopicModal(null)">📁 新增群組</button>
     <button class="btn btn-primary" onclick="showProjModal(null)">＋ 新增 Project</button>
   `;
@@ -1288,10 +1288,10 @@ async function vProject(){
   document.getElementById('hbreadcrumb').textContent='/ '+p.name;
   document.getElementById('hactions').innerHTML=`
     <button class="btn btn-ghost" onclick="showSyncModal('${p.id}')">🔄 匯出／匯入</button>
-    <button class="btn btn-ghost" onclick="exportCSV('${p.id}')">📤 匯出 CSV</button>
+    <button class="btn btn-ghost" onclick="exportCSV('${p.id}')">📤 匯出 Excel</button>
     <label class="btn btn-ghost" style="cursor:pointer" title="選擇修改後的 CSV 檔案匯回更新">
-      📥 匯入 CSV
-      <input type="file" accept=".csv" style="display:none" onchange="importCSV(this,'${p.id}')">
+      📥 匯入 Excel/CSV
+      <input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="importCSV(this,'${p.id}')">
     </label>
     <button class="btn btn-ghost" onclick="applyDefaultsToAll('${p.id}')" title="一次填入所有病例的空白欄位（不會洗掉已填內容）">💡 套用預設值</button>
     <button class="btn btn-ghost" onclick="vSettings('${p.id}')">⚙️ 欄位設定</button>
@@ -1447,7 +1447,7 @@ function buildTable(cases,fields,p){
   return `
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span>💡 點欄位標題可從 Excel 貼入整欄 · 點儲存格可單格修改 · 共 <strong style="color:var(--ink2)">${cases.length}</strong> 筆病例</span>
-      <span style="margin-left:auto;font-size:12px;background:var(--sage-light);color:var(--sage);padding:4px 12px;border-radius:20px;font-weight:600">修改後按右上角「📥 匯入 CSV」匯回</span>
+      <span style="margin-left:auto;font-size:12px;background:var(--sage-light);color:var(--sage);padding:4px 12px;border-radius:20px;font-weight:600">修改後按右上角「📥 匯入 Excel/CSV」匯回</span>
     </div>
     <div class="vscroll-wrap" id="vscroll-wrap" onscroll="onVscroll()" style="overflow:auto">
       <table id="summary-table" style="min-width:100%">
@@ -5213,48 +5213,64 @@ async function importCSV(input, pid){
   const cases=await dbIdx('cases','pid',pid);
 
   try{
-    const text=await file.text();
-    // 解析 CSV（支援帶引號的值）
-    const parseRow=row=>{
-      const result=[]; let cur='', inQ=false;
-      for(let i=0;i<row.length;i++){
-        const ch=row[i];
-        if(ch==='"'){ if(inQ&&row[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
-        else if(ch===','&&!inQ){ result.push(cur.trim()); cur=''; }
-        else cur+=ch;
-      }
-      result.push(cur.trim());
-      return result;
-    };
+    // 依副檔名決定解析方式：xlsx 用 SheetJS，csv 用文字解析
+    const name=(file.name||'').toLowerCase();
+    const isXlsx = name.endsWith('.xlsx')||name.endsWith('.xls');
+    let headers=[], dataRows=[];
 
-    // 去除 BOM
-    const clean=text.replace(/^\uFEFF/,'');
-    const lines=clean.split(/\r?\n/).filter(l=>l.trim());
-    if(lines.length<2){ toast('❌ CSV 格式錯誤或無資料'); input.value=''; return; }
+    if(isXlsx){
+      if(typeof XLSX==='undefined'){ toast('❌ Excel 解析元件未載入，請重新整理'); input.value=''; return; }
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+      if(aoa.length<2){ toast('❌ Excel 無資料'); input.value=''; return; }
+      headers=aoa[0].map(h=>String(h).trim());
+      dataRows=aoa.slice(1).map(r=>r.map(v=>String(v).trim()));
+    } else {
+      const text=await file.text();
+      const parseRow=row=>{
+        const result=[]; let cur='', inQ=false;
+        for(let i=0;i<row.length;i++){
+          const ch=row[i];
+          if(ch==='"'){ if(inQ&&row[i+1]==='"'){cur+='"';i++;}else inQ=!inQ; }
+          else if(ch===','&&!inQ){ result.push(cur.trim()); cur=''; }
+          else cur+=ch;
+        }
+        result.push(cur.trim());
+        return result;
+      };
+      const clean=text.replace(/^\uFEFF/,'');
+      const lines=clean.split(/\r?\n/).filter(l=>l.trim());
+      if(lines.length<2){ toast('❌ CSV 格式錯誤或無資料'); input.value=''; return; }
+      headers=parseRow(lines[0]).map(h=>h.replace(/"/g,'').trim());
+      dataRows=lines.slice(1).map(l=>parseRow(l).map(v=>v.replace(/"/g,'').trim()));
+    }
 
-    const headers=parseRow(lines[0]);
     const caseNumIdx=headers.indexOf('病例號');
-    if(caseNumIdx<0){ toast('❌ 找不到「病例號」欄位，請確認是由本系統匯出的 CSV'); input.value=''; return; }
+    if(caseNumIdx<0){ toast('❌ 找不到「病例號」欄位，請確認是由本系統匯出的檔案'); input.value=''; return; }
 
     // 建立欄位 label → field 的對應表
     const labelToField={};
     fields.forEach(f=>{ labelToField[f.label]=f; });
 
     let updated=0, skipped=0;
-    for(let i=1;i<lines.length;i++){
-      const row=parseRow(lines[i]);
+    for(const row of dataRows){
       if(row.length<2) continue;
-      const caseNum=row[caseNumIdx].replace(/"/g,'').trim();
+      const caseNum=(row[caseNumIdx]||'').trim();
       const targetCase=cases.find(c=>c.caseNum===caseNum);
       if(!targetCase){ skipped++; continue; }
 
-      // 找每個欄位並更新
       let changed=false;
       for(let j=0;j<headers.length;j++){
-        const label=headers[j].replace(/"/g,'').trim();
+        const label=headers[j];
         const field=labelToField[label];
         if(!field||j>=row.length) continue;
-        const newVal=row[j].replace(/"/g,'').trim();
+        let newVal=(row[j]||'').trim();
+        // multiselect 匯出時是「、」分隔，匯回轉成內部 | 格式
+        if(field.type==='multiselect' && newVal.includes('、')){
+          newVal=newVal.split('、').filter(Boolean).join('|');
+        }
         if(targetCase.data[field.id]!==newVal){
           targetCase.data[field.id]=newVal;
           changed=true;
@@ -5408,15 +5424,69 @@ async function exportCSV(pid){
   const cs=await dbIdx('cases','pid',pid);
   const fields=getOrderedFields(p.fields||DEFAULT_FIELDS);
   const hdrs=['病例號',...fields.map(f=>f.label),'建立日期'];
-  const rows=cs.map(c=>[c.caseNum||'',...fields.map(f=>(c.data[f.id]||'').replace(/,/g,'，')),new Date(c.createdAt).toLocaleDateString('zh-TW')]);
-  dlCSV(p.name+'_病例資料',hdrs,rows);
+  const rows=cs.map(c=>[
+    c.caseNum||'',
+    ...fields.map(f=>{
+      const v=c.data[f.id]||'';
+      // multiselect 內部用 | 分隔，匯出改成、較好讀
+      return f.type==='multiselect' ? v.split('|').filter(Boolean).join('、') : v;
+    }),
+    new Date(c.createdAt).toLocaleDateString('zh-TW')
+  ]);
+  dlExcel(p.name+'_病例資料', hdrs, rows, p.name);
 }
 async function exportAll(){
   const ps=await dbAll('projects');
   if(!ps.length){alert('尚無資料');return;}
-  for(const p of ps) await exportCSV(p.id);
-  toast(`✅ 已匯出 ${ps.length} 個 Project`);
+  // 多個 Project 匯到同一個 Excel 檔的不同工作表
+  if(typeof XLSX==='undefined'){
+    for(const p of ps) await exportCSV(p.id);
+    toast(`✅ 已匯出 ${ps.length} 個 Project`);
+    return;
+  }
+  const wb=XLSX.utils.book_new();
+  const usedNames=new Set();
+  for(const p of ps){
+    const cs=await dbIdx('cases','pid',p.id);
+    const fields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+    const hdrs=['病例號',...fields.map(f=>f.label),'建立日期'];
+    const rows=cs.map(c=>[
+      c.caseNum||'',
+      ...fields.map(f=>{
+        const v=c.data[f.id]||'';
+        return f.type==='multiselect' ? v.split('|').filter(Boolean).join('、') : v;
+      }),
+      new Date(c.createdAt).toLocaleDateString('zh-TW')
+    ]);
+    const ws=XLSX.utils.aoa_to_sheet([hdrs,...rows]);
+    // 欄寬自動（依標題長度粗估）
+    ws['!cols']=hdrs.map(h=>({wch:Math.min(Math.max(String(h).length*2+4,10),40)}));
+    // 工作表名稱：Excel 限 31 字元、不能有特殊字元
+    let sn=(p.name||'Sheet').replace(/[\\/?*\[\]:]/g,'_').slice(0,28);
+    let base=sn, k=1;
+    while(usedNames.has(sn)){ sn=base.slice(0,25)+'_'+(k++); }
+    usedNames.add(sn);
+    XLSX.utils.book_append_sheet(wb, ws, sn||'Sheet');
+  }
+  XLSX.writeFile(wb, `全部病例資料_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast(`✅ 已匯出 ${ps.length} 個 Project 到一個 Excel 檔`);
 }
+
+// 匯出成 Excel（xlsx）— 中文不亂碼、格式不跑掉
+function dlExcel(fname, hdrs, rows, sheetName){
+  if(typeof XLSX==='undefined'){
+    // 後備：仍用 UTF-8 BOM CSV
+    dlCSV(fname, hdrs, rows);
+    return;
+  }
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet([hdrs,...rows]);
+  ws['!cols']=hdrs.map(h=>({wch:Math.min(Math.max(String(h).length*2+4,10),40)}));
+  let sn=(sheetName||'病例資料').replace(/[\\/?*\[\]:]/g,'_').slice(0,28)||'病例資料';
+  XLSX.utils.book_append_sheet(wb, ws, sn);
+  XLSX.writeFile(wb, fname+'.xlsx');
+}
+
 function dlCSV(fname,hdrs,rows){
   const csv=[hdrs,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a=document.createElement('a');

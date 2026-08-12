@@ -1012,6 +1012,14 @@ async function batchDuplicate(){
             tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
           }));
         }
+        if(newProj.dateCalcs){
+          newProj.dateCalcs=newProj.dateCalcs.map(dc=>({
+            ...dc,
+            tgtFid:fieldIdMap[dc.tgtFid]||dc.tgtFid,
+            fromFid:fieldIdMap[dc.fromFid]||dc.fromFid,
+            toFid:fieldIdMap[dc.toFid]||dc.toFid
+          }));
+        }
         await dbPut('projects',newProj);
         copiedProjs++;
         if(includeCases){
@@ -1070,6 +1078,14 @@ async function duplicateProject(pid){
           ...lk,
           srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
           tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
+        }));
+      }
+      if(newProj.dateCalcs){
+        newProj.dateCalcs=newProj.dateCalcs.map(dc=>({
+          ...dc,
+          tgtFid:fieldIdMap[dc.tgtFid]||dc.tgtFid,
+          fromFid:fieldIdMap[dc.fromFid]||dc.fromFid,
+          toFid:fieldIdMap[dc.toFid]||dc.toFid
         }));
       }
       await dbPut('projects',newProj);
@@ -1145,6 +1161,14 @@ async function duplicateGroup(gid){
             ...lk,
             srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
             tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
+          }));
+        }
+        if(newProj.dateCalcs){
+          newProj.dateCalcs=newProj.dateCalcs.map(dc=>({
+            ...dc,
+            tgtFid:fieldIdMap[dc.tgtFid]||dc.tgtFid,
+            fromFid:fieldIdMap[dc.fromFid]||dc.fromFid,
+            toFid:fieldIdMap[dc.toFid]||dc.toFid
           }));
         }
         await dbPut('projects',newProj);
@@ -1769,6 +1793,7 @@ async function vCase(){
     </div>`;
   // Bind inputs
   const projLinks = p.fieldLinks||[];
+  const projDateCalcs = p.dateCalcs||[];
   document.getElementById('app').querySelectorAll('[data-fid]').forEach(el=>{
     const handler=e=>{
       const fid=e.target.dataset.fid;
@@ -1781,6 +1806,8 @@ async function vCase(){
       }
       // 觸發欄位連動
       applyFieldLinks(fid, e.target.value, projLinks);
+      // 觸發日期差自動計算
+      applyDateCalcs(fid, projDateCalcs);
     };
     el.addEventListener('input',handler);
     // select 有時只發 change 不發 input，兩者都綁
@@ -1804,6 +1831,54 @@ async function vCase(){
   // ★ 開啟病例時，依現有值自動套用一次連動規則（讓既有資料也生效，但不覆蓋已填的目標欄位）
   if(projLinks.length){
     applyAllFieldLinksOnLoad(projLinks);
+  }
+  // ★ 開啟病例時，依現有日期自動算一次日期差
+  if(projDateCalcs.length){
+    applyAllDateCalcsOnLoad(projDateCalcs);
+  }
+}
+
+// ── 📅 日期差自動計算 ────────────────────────────────────────────────
+// 設定格式：{tgtFid, fromFid, toFid, unit:'months'|'days'}
+function computeDateDiff(fromStr, toStr, unit){
+  if(!fromStr||!toStr) return null;
+  const a=new Date(fromStr), b=new Date(toStr);
+  if(isNaN(a)||isNaN(b)) return null;
+  const days=(b-a)/(1000*60*60*24);
+  if(unit==='days') return Math.round(days);
+  // months：以 30.4375 天為一個月，較符合臨床習慣可改 30
+  const months=days/30.4375;
+  return Math.round(months*10)/10; // 一位小數
+}
+
+function applyDateCalcs(changedFid, calcs){
+  if(!calcs||!calcs.length) return;
+  for(const c of calcs){
+    if(c.fromFid!==changedFid && c.toFid!==changedFid) continue;
+    const v=computeDateDiff(formData[c.fromFid], formData[c.toFid], c.unit||'months');
+    if(v!==null){
+      applyFieldValue(c.tgtFid, String(v));
+      dirty=true;
+      document.getElementById('savebar')?.classList.add('on');
+      flashLinkedField(c.tgtFid);
+      const unitTxt=(c.unit==='days')?'天':'個月';
+      toast(`📅 已自動計算：${v} ${unitTxt}（可手動修改）`);
+    }
+  }
+}
+
+function applyAllDateCalcsOnLoad(calcs){
+  let any=false;
+  for(const c of calcs){
+    const cur=formData[c.tgtFid];
+    // 只在目標為空時自動填（不覆蓋手動值）
+    if(cur!==undefined && cur!==null && cur!=='') continue;
+    const v=computeDateDiff(formData[c.fromFid], formData[c.toFid], c.unit||'months');
+    if(v!==null){ applyFieldValue(c.tgtFid, String(v)); any=true; }
+  }
+  if(any){
+    dirty=true;
+    document.getElementById('savebar')?.classList.add('on');
   }
 }
 
@@ -3796,6 +3871,7 @@ async function delCase(cid){
 let editSectionNotes={};   // { sectionName: noteText (拍照備註) }
 let editSectionDerives={}; // { sectionName: derivedRule (AI 推導規則) }
 let editFieldLinks=[];     // [{srcFid, op:'is'|'contains', srcVal, tgtFid, tgtVal}]
+let editDateCalcs=[];      // [{tgtFid, fromFid, toFid, unit}]
 
 async function vSettings(pid){
   pid=pid||PID; PID=pid; VIEW='settings';
@@ -3804,6 +3880,7 @@ async function vSettings(pid){
   editSectionNotes=JSON.parse(JSON.stringify(p.sectionNotes||{}));
   editSectionDerives=JSON.parse(JSON.stringify(p.sectionDerives||{}));
   editFieldLinks=JSON.parse(JSON.stringify(p.fieldLinks||[]));
+  editDateCalcs=JSON.parse(JSON.stringify(p.dateCalcs||[]));
   const defaultPhotoNote = p.defaultPhotoNote||'';
   const aiContext = p.aiContext||'';
   document.getElementById('hbreadcrumb').textContent='/ '+p.name+' / 欄位設定';
@@ -3894,6 +3971,24 @@ async function vSettings(pid){
           <div id="links-list">${renderFieldLinks()}</div>
           <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:10px;border-style:dashed" onclick="showAddLinkModal()">
             ＋ 新增連動規則
+          </button>
+        </div>
+      </div>
+
+      <!-- 📅 日期差自動計算 -->
+      <div class="card" style="margin-bottom:22px">
+        <div class="card-header">
+          <span style="font-weight:700;font-size:15px">📅 日期差自動計算</span>
+          <span style="font-size:13px;color:var(--muted)" id="datecalc-count-badge">${editDateCalcs.length} 條規則</span>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.7">
+            設定「兩個日期欄位相減，自動算出間隔（月/天）填到目標欄位」。填好兩個日期後自動計算，仍可手動改。<br>
+            <span style="color:var(--sage);font-weight:600">例：Platinum-free interval = 第一線化療最後給藥日 → 第1次復發日 的月數</span>
+          </div>
+          <div id="datecalc-list">${renderDateCalcs()}</div>
+          <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:10px;border-style:dashed" onclick="showAddDateCalcModal()">
+            ＋ 新增日期差計算
           </button>
         </div>
       </div>
@@ -4156,6 +4251,107 @@ function commitAddLink(){
   closeLinkModal();
   refreshLinksList();
   toast('✅ 連動規則已新增');
+}
+
+// ── 📅 日期差自動計算 CRUD ─────────────────────────────────────────────
+function renderDateCalcs(){
+  if(!editDateCalcs.length){
+    return `<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;background:var(--cream);border-radius:10px">尚無日期差計算，點下方按鈕新增</div>`;
+  }
+  return editDateCalcs.map((c,i)=>{
+    const unitTxt=c.unit==='days'?'天':'個月';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border2);border-radius:11px;margin-bottom:8px">
+        <span style="font-size:16px;flex-shrink:0">📅</span>
+        <div style="flex:1;min-width:0;font-size:13px;line-height:1.7;color:var(--ink2)">
+          <strong style="color:var(--sage)">${escH(fieldLabelById(c.tgtFid))}</strong>
+          = <strong style="color:var(--gold)">${escH(fieldLabelById(c.toFid))}</strong>
+          − <strong style="color:var(--gold)">${escH(fieldLabelById(c.fromFid))}</strong>
+          <span style="color:var(--muted)">（${unitTxt}）</span>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="removeDateCalc(${i})" style="font-size:12px;padding:5px 10px;flex-shrink:0">刪除</button>
+      </div>`;
+  }).join('');
+}
+
+function refreshDateCalcsList(){
+  const el=document.getElementById('datecalc-list');
+  if(el) el.innerHTML=renderDateCalcs();
+  const badge=document.getElementById('datecalc-count-badge');
+  if(badge) badge.textContent=editDateCalcs.length+' 條規則';
+}
+
+function removeDateCalc(i){
+  editDateCalcs.splice(i,1);
+  refreshDateCalcsList();
+}
+
+function showAddDateCalcModal(){
+  // 只列出 date 與 number 欄位
+  const dateFields=editFields.filter(f=>f.type==='date');
+  const numFields=editFields.filter(f=>f.type==='number');
+  if(dateFields.length<2){ toast('至少需要兩個「日期」欄位'); return; }
+  if(numFields.length<1){ toast('需要一個「數字」欄位存放計算結果'); return; }
+  document.getElementById('datecalc-modal')?.remove();
+  const dOpts=dateFields.map(f=>`<option value="${f.id}">${escH(f.label)}</option>`).join('');
+  const nOpts=numFields.map(f=>`<option value="${f.id}">${escH(f.label)}</option>`).join('');
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="datecalc-modal" onclick="if(event.target.id==='datecalc-modal')closeDateCalcModal()">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-hd">
+          <span class="modal-title">📅 新增日期差計算</span>
+          <button class="btn-icon" onclick="closeDateCalcModal()">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="background:var(--sage-light);border:1px solid #C5E0D8;border-radius:10px;padding:11px 14px;margin-bottom:16px;font-size:13px;color:var(--ink2);line-height:1.7">
+            結果 = 「結束日期」−「起始日期」，換算成月或天，自動填入目標數字欄位。
+          </div>
+          <div class="fg">
+            <label class="flabel">起始日期（較早）</label>
+            <select class="fselect" id="dc-from">${dOpts}</select>
+          </div>
+          <div class="fg">
+            <label class="flabel">結束日期（較晚）</label>
+            <select class="fselect" id="dc-to">${dOpts}</select>
+          </div>
+          <div class="frow">
+            <div class="fg">
+              <label class="flabel">單位</label>
+              <select class="fselect" id="dc-unit">
+                <option value="months">個月（1位小數）</option>
+                <option value="days">天</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label class="flabel">結果填到（數字欄位）</label>
+              <select class="fselect" id="dc-tgt">${nOpts}</select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeDateCalcModal()">取消</button>
+          <button class="btn btn-primary" onclick="commitAddDateCalc()">✅ 新增</button>
+        </div>
+      </div>
+    </div>`);
+  // 預設：起=第1個date, 結=第2個date, 目標=第1個number
+  document.getElementById('dc-from').value=dateFields[0].id;
+  document.getElementById('dc-to').value=dateFields[1].id;
+  document.getElementById('dc-tgt').value=numFields[0].id;
+}
+
+function closeDateCalcModal(){ document.getElementById('datecalc-modal')?.remove(); }
+
+function commitAddDateCalc(){
+  const fromFid=document.getElementById('dc-from').value;
+  const toFid=document.getElementById('dc-to').value;
+  const unit=document.getElementById('dc-unit').value;
+  const tgtFid=document.getElementById('dc-tgt').value;
+  if(fromFid===toFid){ alert('起始與結束日期不能相同'); return; }
+  editDateCalcs.push({tgtFid, fromFid, toFid, unit});
+  closeDateCalcModal();
+  refreshDateCalcsList();
+  toast('✅ 日期差計算已新增');
 }
 
 // ── 分區拖曳排序 ──────────────────────────────────────────────────────────
@@ -4611,6 +4807,7 @@ async function saveSettings(pid){
   p.sectionNotes=editSectionNotes;
   p.sectionDerives=editSectionDerives;
   p.fieldLinks=editFieldLinks;
+  p.dateCalcs=editDateCalcs;
   p.aiContext=document.getElementById('ai-context')?.value||'';
   p.defaultPhotoNote=document.getElementById('default-photo-note')?.value||'';
   await dbPut('projects',p);
@@ -4740,6 +4937,7 @@ async function createProj(){
   let sectionNotes={};
   let sectionDerives={};
   let fieldLinks=[];
+  let dateCalcs=[];
   let defaultPhotoNote='';
   let aiContext='';
 
@@ -4759,13 +4957,19 @@ async function createProj(){
         srcFid:fieldIdMap[lk.srcFid]||lk.srcFid,
         tgtFid:fieldIdMap[lk.tgtFid]||lk.tgtFid
       }));
+      dateCalcs=(src.dateCalcs||[]).map(dc=>({
+        ...dc,
+        tgtFid:fieldIdMap[dc.tgtFid]||dc.tgtFid,
+        fromFid:fieldIdMap[dc.fromFid]||dc.fromFid,
+        toFid:fieldIdMap[dc.toFid]||dc.toFid
+      }));
       if(src.defaultPhotoNote) defaultPhotoNote=src.defaultPhotoNote;
       if(src.aiContext) aiContext=src.aiContext;
       toast(`✅ 已複製「${src.name}」的欄位設定`);
     }
   }
 
-  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,sectionDerives,fieldLinks,aiContext,defaultPhotoNote,createdAt:Date.now()});
+  await dbPut('projects',{id:uid(),name,description:desc,topicId,fields,sectionNotes,sectionDerives,fieldLinks,dateCalcs,aiContext,defaultPhotoNote,createdAt:Date.now()});
   closeMod();
   if(!copyFromId) toast('✅ Project 已建立');
   if(VIEW==='group' && topicId===GID) vGroup(); else vProjects();

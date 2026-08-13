@@ -164,6 +164,12 @@
     cursor:pointer;transition:all .15s;
   }
   #summary-table td.tdmuted:hover{background:var(--sage-light);color:var(--sage);}
+  .followup-badge{
+    display:inline-block;font-size:9px;font-weight:700;
+    color:var(--sage);background:var(--sage-light);
+    border:1px solid #C5E0D8;border-radius:8px;padding:1px 6px;
+    line-height:1.4;white-space:nowrap;vertical-align:middle;
+  }
   /* 虛擬滾動容器 */
   .vscroll-wrap{
     overflow:auto;max-height:calc(100vh - 320px);
@@ -1442,11 +1448,24 @@ function buildTable(cases,fields,p){
         </th>`).join('')}
     </tr></thead>`;
 
-  vscrollState = {cases, fields, p, rowHeight:ROW_H, colSpan:fields.length+1};
+  // 找出 Status 欄位（用來判斷存活/需追蹤）
+  const statusField = fields.find(f=>/^status$/i.test(f.label)) || fields.find(f=>/status|存活|狀態/i.test(f.label));
+  const statusFid = statusField?.id;
+  vscrollState = {cases, fields, p, rowHeight:ROW_H, colSpan:fields.length+1, statusFid};
+
+  // 統計需追蹤（存活）人數
+  let aliveCount=0;
+  if(statusFid){
+    for(const c of cases){
+      const s=String(c.data[statusFid]||'').trim();
+      if(s && !/expired|死亡|deceased|dead|過世|往生/i.test(s)) aliveCount++;
+    }
+  }
 
   return `
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span>💡 點欄位標題可從 Excel 貼入整欄 · 點儲存格可單格修改 · 共 <strong style="color:var(--ink2)">${cases.length}</strong> 筆病例</span>
+      ${aliveCount>0?`<span style="font-size:12px;background:var(--sage-light);color:var(--sage);padding:4px 12px;border-radius:20px;font-weight:700;border:1px solid #C5E0D8">🟢 ${aliveCount} 位需追蹤</span>`:''}
       <span style="margin-left:auto;font-size:12px;background:var(--sage-light);color:var(--sage);padding:4px 12px;border-radius:20px;font-weight:600">修改後按右上角「📥 匯入 Excel/CSV」匯回</span>
     </div>
     <div class="vscroll-wrap" id="vscroll-wrap" onscroll="onVscroll()" style="overflow:auto">
@@ -1464,7 +1483,7 @@ function renderVscrollRows(){
   const tbody=document.getElementById('vscroll-tbody');
   if(!wrap||!tbody) return;
 
-  const {cases, fields, p, rowHeight, colSpan} = vscrollState;
+  const {cases, fields, p, rowHeight, colSpan, statusFid} = vscrollState;
   const scrollTop=wrap.scrollTop;
   const viewH=wrap.clientHeight||500;
   const BUFFER=8;
@@ -1473,6 +1492,14 @@ function renderVscrollRows(){
 
   const topSpacerH = startIdx*rowHeight;
   const bottomSpacerH = (cases.length - endIdx)*rowHeight;
+
+  // 判斷是否存活（非 Expired/死亡 = 需持續追蹤）
+  const isAlive = (c)=>{
+    if(!statusFid) return false;
+    const s=String(c.data[statusFid]||'').trim();
+    if(!s) return false; // 未填 status 不標記
+    return !/expired|死亡|deceased|dead|過世|往生/i.test(s);
+  };
 
   let html='';
   // 上方空白列
@@ -1483,9 +1510,10 @@ function renderVscrollRows(){
   for(let i=startIdx;i<endIdx;i++){
     const c=cases[i];
     if(!c) continue;
+    const alive=isAlive(c);
     html+=`<tr>
-      <td class="tdmuted" onclick="goCase('${c.id}','${p.id}')" title="點擊開啟問卷">
-        ${c.caseNum||String(i+1).padStart(3,'0')}
+      <td class="tdmuted" onclick="goCase('${c.id}','${p.id}')" title="點擊開啟問卷" style="white-space:nowrap">
+        ${alive?`<span class="followup-badge" title="病人存活中，記得持續追蹤更新">🟢 需追蹤</span> `:''}${c.caseNum||String(i+1).padStart(3,'0')}
       </td>`;
     for(const f of fields){
       const v=c.data[f.id]||'';

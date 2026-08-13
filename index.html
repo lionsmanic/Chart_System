@@ -1385,7 +1385,10 @@ function renderVlistRows(){
       <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${c._origIdx!==undefined?String(c._origIdx+1).padStart(3,'0'):String(i+1).padStart(3,'0')}</td>
       ${cols.map((f,ci)=>`<td class="${ci===0?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
       <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button>
+        <button class="btn btn-ghost btn-sm" title="複製此病人到其他 Project" onclick="event.stopPropagation();showCopyToProject('${c.id}')">📋</button>
+      </td>
     </tr>`;
   }
   if(bottomH>0) html+=`<tr class="vscroll-spacer-row" style="height:${bottomH}px"><td colspan="${colSpan}"></td></tr>`;
@@ -3985,7 +3988,7 @@ async function delCase(cid){
   await dbDel('cases',cid);dirty=false;toast('🗑️ 已刪除');goProject(PID);
 }
 
-// ── 📋 複製病人資料到其他 Project ────────────────────────────────────
+// ── 📋 複製病人資料到其他 Project（簡化版：選 Project 即複製）──────────
 let copySrcCaseId=null;
 async function showCopyToProject(cid){
   copySrcCaseId=cid;
@@ -3994,182 +3997,84 @@ async function showCopyToProject(cid){
   const allProjs=(await dbAll('projects')).filter(p=>p.id!==srcCase.projectId);
   if(!allProjs.length){ toast('沒有其他 Project 可複製'); return; }
 
-  // 來源已填欄位數
   const srcFields=srcProj.fields||[];
+  const srcLabels=new Set(srcFields.map(f=>f.label));
   const srcFilled=srcFields.filter(f=>{
     const v=srcCase.data[f.id];
     return v!==undefined&&v!==null&&String(v).trim()!=='';
-  });
+  }).length;
+
+  // 病人名（給提示用）
+  const nameF=srcFields.find(f=>/姓名|name|病患|病人/i.test(f.label));
+  const patientName=nameF?(srcCase.data[nameF.id]||''):'';
 
   document.getElementById('copy-proj-modal')?.remove();
-  const projOpts=allProjs.map(p=>{
-    // 預估同名欄位數
-    const srcLabels=new Set(srcFields.map(f=>f.label));
+  const projCards=allProjs.map(p=>{
     const common=(p.fields||[]).filter(f=>srcLabels.has(f.label)).length;
-    return `<option value="${p.id}" data-common="${common}">${escH(p.name)}（${common} 個同名欄位）</option>`;
+    return `
+      <div onclick="doCopyToProjectSimple('${p.id}')"
+        style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid var(--border);border-radius:11px;margin-bottom:9px;cursor:pointer;transition:all .15s;background:var(--card)"
+        onmouseenter="this.style.borderColor='var(--sage)';this.style.background='var(--sage-light)'"
+        onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--card)'">
+        <span style="font-size:22px;flex-shrink:0">📁</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(p.name)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${common} 個同名欄位會帶過去</div>
+        </div>
+        <span style="font-size:18px;color:var(--sage);flex-shrink:0">→</span>
+      </div>`;
   }).join('');
 
   document.body.insertAdjacentHTML('beforeend',`
     <div class="overlay" id="copy-proj-modal" onclick="if(event.target.id==='copy-proj-modal')closeCopyProj()">
-      <div class="modal" style="max-width:540px">
+      <div class="modal" style="max-width:480px">
         <div class="modal-hd">
           <div>
             <span class="modal-title">📋 複製到其他 Project</span>
-            <div style="font-size:12px;color:var(--muted);margin-top:3px">來源病例已填 ${srcFilled.length} 個欄位，僅「同名欄位」會被複製</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px">${patientName?`「${escH(patientName)}」·　`:''}已填 ${srcFilled} 個欄位 · 點選要複製到的 Project</div>
           </div>
           <button class="btn-icon" onclick="closeCopyProj()">✕</button>
         </div>
         <div class="modal-bd">
-          <div class="fg">
-            <label class="flabel">複製到哪個 Project</label>
-            <select class="fselect" id="copy-tgt-proj" onchange="onCopyTgtChange()">${projOpts}</select>
-          </div>
-
-          <div class="fg">
-            <label class="flabel">複製方式</label>
-            <label class="copy-mode-opt" data-mode="new" onclick="pickCopyMode(this)"
-              style="display:block;border:2px solid var(--sage);border-radius:11px;padding:12px 14px;margin-bottom:9px;cursor:pointer;background:var(--sage-light)">
-              <div style="display:flex;align-items:flex-start;gap:10px">
-                <div class="copy-radio" style="width:18px;height:18px;border-radius:50%;border:2.5px solid var(--sage);background:var(--sage);flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700">✓</div>
-                <div>
-                  <div style="font-size:14px;font-weight:700;color:var(--ink)">➕ 建立新病例並帶入資料</div>
-                  <div style="font-size:12px;color:var(--muted);margin-top:2px">在目標 Project 新增一筆病例，填入同名欄位的值</div>
-                </div>
-              </div>
-            </label>
-            <label class="copy-mode-opt" data-mode="merge" onclick="pickCopyMode(this)"
-              style="display:block;border:1.5px solid var(--border);border-radius:11px;padding:12px 14px;cursor:pointer;background:var(--card)">
-              <div style="display:flex;align-items:flex-start;gap:10px">
-                <div class="copy-radio" style="width:18px;height:18px;border-radius:50%;border:2.5px solid var(--border);background:#fff;flex-shrink:0;margin-top:1px"></div>
-                <div>
-                  <div style="font-size:14px;font-weight:700;color:var(--ink)">🔗 合併到目標 Project 已有的某筆病例</div>
-                  <div style="font-size:12px;color:var(--muted);margin-top:2px">選一筆現有病例，把同名欄位的值填入（僅填空白，不覆蓋已有值）</div>
-                </div>
-              </div>
-            </label>
-          </div>
-
-          <div class="fg" id="copy-merge-target-wrap" style="display:none">
-            <label class="flabel">選擇要合併的病例</label>
-            <select class="fselect" id="copy-merge-case"></select>
-          </div>
-
-          <div id="copy-preview" style="background:var(--cream);border-radius:10px;padding:11px 14px;font-size:12px;color:var(--muted);line-height:1.7"></div>
-        </div>
-        <div class="modal-ft">
-          <button class="btn btn-outline" onclick="closeCopyProj()">取消</button>
-          <button class="btn btn-primary" onclick="doCopyToProject()">📋 複製</button>
+          ${projCards}
+          <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px;line-height:1.6">會在選定的 Project 建立一筆新病例，帶入「同名欄位」的值</div>
         </div>
       </div>
     </div>`);
-  document.querySelector('.copy-mode-opt[data-mode="new"]')?.classList.add('sel');
-  onCopyTgtChange();
 }
 
 function closeCopyProj(){ document.getElementById('copy-proj-modal')?.remove(); copySrcCaseId=null; }
 
-function pickCopyMode(el){
-  document.querySelectorAll('.copy-mode-opt').forEach(o=>{
-    o.classList.remove('sel');
-    o.style.border='1.5px solid var(--border)';
-    o.style.background='var(--card)';
-    const r=o.querySelector('.copy-radio');
-    if(r){r.style.borderColor='var(--border)';r.style.background='#fff';r.textContent='';}
-  });
-  el.classList.add('sel');
-  el.style.border='2px solid var(--sage)';
-  el.style.background='var(--sage-light)';
-  const r=el.querySelector('.copy-radio');
-  if(r){r.style.borderColor='var(--sage)';r.style.background='var(--sage)';r.textContent='✓';r.style.color='#fff';r.style.display='flex';r.style.alignItems='center';r.style.justifyContent='center';r.style.fontSize='10px';r.style.fontWeight='700';}
-  // merge 模式才顯示病例選單
-  const isMerge=el.dataset.mode==='merge';
-  const wrap=document.getElementById('copy-merge-target-wrap');
-  if(wrap) wrap.style.display=isMerge?'':'none';
-  if(isMerge) loadMergeCases();
-}
-
-async function onCopyTgtChange(){
-  const tgtPid=document.getElementById('copy-tgt-proj').value;
-  const opt=document.querySelector(`#copy-tgt-proj option[value="${tgtPid}"]`);
-  const common=opt?opt.dataset.common:0;
-  const prev=document.getElementById('copy-preview');
-  if(prev) prev.innerHTML=`將複製 <strong style="color:var(--sage)">${common}</strong> 個同名欄位的值到此 Project。不同名的欄位會略過。`;
-  // 若目前是 merge 模式，更新病例選單
-  const mode=document.querySelector('.copy-mode-opt.sel')?.dataset.mode;
-  if(mode==='merge') loadMergeCases();
-}
-
-async function loadMergeCases(){
-  const tgtPid=document.getElementById('copy-tgt-proj').value;
-  const cases=await dbIdx('cases','pid',tgtPid);
-  const tgtProj=await dbGet('projects',tgtPid);
-  const nameField=(tgtProj.fields||[]).find(f=>/姓名|name|病患|病人/i.test(f.label));
-  const sel=document.getElementById('copy-merge-case');
-  if(!sel) return;
-  if(!cases.length){
-    sel.innerHTML=`<option value="">（此 Project 尚無病例，請改用「建立新病例」）</option>`;
-    return;
-  }
-  sel.innerHTML=cases.map(c=>{
-    const nm=nameField?(c.data[nameField.id]||''):'';
-    return `<option value="${c.id}">${escH(c.caseNum||'')}${nm?' · '+escH(nm):''}</option>`;
-  }).join('');
-}
-
-async function doCopyToProject(){
-  const mode=document.querySelector('.copy-mode-opt.sel')?.dataset.mode||'new';
-  const tgtPid=document.getElementById('copy-tgt-proj').value;
+async function doCopyToProjectSimple(tgtPid){
   const srcCase=await dbGet('cases',copySrcCaseId);
   const srcProj=await dbGet('projects',srcCase.projectId);
   const tgtProj=await dbGet('projects',tgtPid);
 
-  // 建立 來源 label→value 對照（只取已填的）
+  // 來源 label→value（只取已填）
   const srcLabelVal={};
   for(const f of (srcProj.fields||[])){
     const v=srcCase.data[f.id];
-    if(v!==undefined&&v!==null&&String(v).trim()!==''){
-      srcLabelVal[f.label]=v;
-    }
+    if(v!==undefined&&v!==null&&String(v).trim()!=='') srcLabelVal[f.label]=v;
   }
   // 目標 label→fieldId
   const tgtLabelFid={};
   for(const f of (tgtProj.fields||[])) tgtLabelFid[f.label]=f.id;
 
+  const cs=await dbIdx('cases','pid',tgtPid);
+  const newData={};
   let copied=0;
-  if(mode==='new'){
-    const cs=await dbIdx('cases','pid',tgtPid);
-    const newData={};
-    for(const label in srcLabelVal){
-      if(tgtLabelFid[label]){ newData[tgtLabelFid[label]]=srcLabelVal[label]; copied++; }
-    }
-    const newCase={
-      id:uid(), projectId:tgtPid,
-      caseNum:String(cs.length+1).padStart(3,'0'),
-      data:newData, createdAt:Date.now(), updatedAt:Date.now()
-    };
-    await dbPut('cases',newCase);
-    closeCopyProj();
-    toast(`✅ 已在「${tgtProj.name}」建立新病例，帶入 ${copied} 個欄位`);
-    goCase(newCase.id, tgtPid);
-  } else {
-    const mergeCid=document.getElementById('copy-merge-case').value;
-    if(!mergeCid){ toast('請先選擇要合併的病例'); return; }
-    const tgtCase=await dbGet('cases',mergeCid);
-    for(const label in srcLabelVal){
-      const fid=tgtLabelFid[label];
-      if(!fid) continue;
-      const cur=tgtCase.data[fid];
-      // 只填空白，不覆蓋已有值
-      if(cur===undefined||cur===null||String(cur).trim()===''){
-        tgtCase.data[fid]=srcLabelVal[label]; copied++;
-      }
-    }
-    tgtCase.updatedAt=Date.now();
-    await dbPut('cases',tgtCase);
-    closeCopyProj();
-    toast(`✅ 已合併 ${copied} 個空白欄位到目標病例`);
-    goCase(tgtCase.id, tgtPid);
+  for(const label in srcLabelVal){
+    if(tgtLabelFid[label]){ newData[tgtLabelFid[label]]=srcLabelVal[label]; copied++; }
   }
+  const newCase={
+    id:uid(), projectId:tgtPid,
+    caseNum:String(cs.length+1).padStart(3,'0'),
+    data:newData, createdAt:Date.now(), updatedAt:Date.now()
+  };
+  await dbPut('cases',newCase);
+  closeCopyProj();
+  toast(`✅ 已複製到「${tgtProj.name}」，帶入 ${copied} 個欄位`);
+  goCase(newCase.id, tgtPid);
 }
 
 // ── Settings (field builder) ───────────────────────────────────────────────

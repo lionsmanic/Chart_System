@@ -2895,6 +2895,85 @@ function setFullStatus(state,msg){
   el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
 }
 
+// ── 🗓️ 多次 HIPEC 時間錨點解析 ──────────────────────────────────────
+// 掃描前先問 Gemini「有幾次 HIPEC」，多次就讓使用者選基準日
+let hipecAnchorChosen=null; // 使用者選定的基準日（字串 YYYY-MM-DD）
+
+async function resolveHipecAnchor(files, apiKey){
+  // 回傳：{anchor: 'YYYY-MM-DD'|null, cancelled:bool}
+  try{
+    const parts=filesToGeminiParts(files);
+    parts.push({text:`請從以上病歷附件中，找出所有「HIPEC / CRS（腹腔熱化療 / 減積手術）」的手術日期。
+只回覆 JSON，格式：{"hipec_surgeries":[{"date":"YYYY-MM-DD","note":"簡短說明如primary/recurrent或術式"}]}
+- 依日期由早到晚排列
+- 若只找到一次就回傳一筆；找不到則回傳空陣列
+- 不要其他文字、不要 markdown`});
+
+    const resp=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
+    );
+    if(!resp.ok) return {anchor:null, cancelled:false}; // 失敗就不擋，照常掃描
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+    const list=(parsed.hipec_surgeries||[]).filter(x=>x&&x.date);
+
+    if(list.length<=1){
+      // 0 或 1 次 → 不需詢問，直接用（有的話回傳那次）
+      return {anchor: list[0]?.date || null, cancelled:false};
+    }
+    // 多次 → 跳出選擇
+    return await new Promise(resolve=>{
+      showHipecAnchorPicker(list, resolve);
+    });
+  }catch(e){
+    return {anchor:null, cancelled:false}; // 出錯不擋
+  }
+}
+
+function showHipecAnchorPicker(list, resolve){
+  document.getElementById('hipec-anchor-modal')?.remove();
+  const cards=list.map((h,i)=>`
+    <div onclick="__pickHipecAnchor(${i})"
+      style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid var(--border);border-radius:11px;margin-bottom:9px;cursor:pointer;transition:all .15s;background:var(--card)"
+      onmouseenter="this.style.borderColor='var(--sage)';this.style.background='var(--sage-light)'"
+      onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--card)'">
+      <span style="font-size:20px;flex-shrink:0">🗓️</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:15px;font-weight:700;color:var(--ink)">第 ${i+1} 次 · ${escH(h.date)}</div>
+        ${h.note?`<div style="font-size:12px;color:var(--muted);margin-top:2px">${escH(h.note)}</div>`:''}
+      </div>
+      <span style="font-size:18px;color:var(--sage);flex-shrink:0">→</span>
+    </div>`).join('');
+
+  window.__pickHipecAnchor=(i)=>{
+    document.getElementById('hipec-anchor-modal')?.remove();
+    resolve({anchor:list[i].date, cancelled:false});
+  };
+  window.__cancelHipecAnchor=()=>{
+    document.getElementById('hipec-anchor-modal')?.remove();
+    resolve({anchor:null, cancelled:true});
+  };
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="hipec-anchor-modal" style="z-index:9999" onclick="if(event.target.id==='hipec-anchor-modal')__cancelHipecAnchor()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-hd">
+          <div>
+            <span class="modal-title">🗓️ 這位病人有多次 HIPEC</span>
+            <div style="font-size:12px;color:var(--muted);margin-top:3px">請選擇「這次要記錄」以哪一次 HIPEC 為時間基準，AI 會依此判讀術前/術後</div>
+          </div>
+          <button class="btn-icon" onclick="__cancelHipecAnchor()">✕</button>
+        </div>
+        <div class="modal-bd">
+          ${cards}
+          <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px;line-height:1.6">選定後，所有 Pre/Post-HIPEC 欄位都以這一天為基準</div>
+        </div>
+      </div>
+    </div>`);
+}
+
 async function runFullScan(){
   const apiKey=getGeminiKey();
   if(!apiKey){ toast('請先設定 Gemini API Key（在「📷 AI 掃描病歷」視窗中）'); return; }
@@ -2915,6 +2994,19 @@ async function runFullScan(){
 
   const btn=document.getElementById('full-run-btn');
   btn.disabled=true; btn.textContent='⏳ 掃描中…';
+
+  // 先解析多次 HIPEC 的時間錨點
+  setFullStatus('loading','正在確認 HIPEC 手術次數…');
+  const anchorRes=await resolveHipecAnchor(picked, apiKey);
+  if(anchorRes.cancelled){
+    btn.disabled=false; btn.textContent='🚀 開始全區掃描';
+    setFullStatus('ready','已取消，請重新選擇');
+    return;
+  }
+  const anchorLine = anchorRes.anchor
+    ? `\n★★ 本次記錄的時間錨點：以 ${anchorRes.anchor} 這次 HIPEC 手術為基準。所有 Pre-HIPEC/Post-HIPEC、術前/術後判斷都以這一天為準。若病歷有多次 HIPEC，只採用這一次作為基準。★★\n`
+    : '';
+
   setFullStatus('loading',`Gemini 正在分析 ${picked.length} 個檔案、${secNames.length} 個分區（共 ${targetFields.length} 個欄位），請稍候…`);
 
   // 依分區組出欄位規格，key 用「分區::欄位」避免同名衝突
@@ -2933,7 +3025,7 @@ async function runFullScan(){
   try{
     const ctxPrefix=await aiContextPrefix();
     const parts=filesToGeminiParts(picked);
-    parts.push({text:`${ctxPrefix}你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
+    parts.push({text:`${ctxPrefix}${anchorLine}你是醫療資料萃取助理。請仔細閱讀以上 ${picked.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，萃取下列各分區的欄位資訊。
 
 ${specBySection}
 
@@ -3309,6 +3401,19 @@ async function runSecAIScan(){
 
   const btn=document.getElementById('sec-scan-btn');
   btn.disabled=true; btn.textContent=`⏳ 辨識中（${imgs.length} 個檔案）…`;
+
+  // 先解析多次 HIPEC 時間錨點
+  setSecStatus('loading','正在確認 HIPEC 手術次數…');
+  const anchorRes=await resolveHipecAnchor(imgs, apiKey);
+  if(anchorRes.cancelled){
+    btn.disabled=false; btn.textContent='🤖 開始辨識';
+    setSecStatus('ready','已取消，請重新選擇');
+    return;
+  }
+  const anchorLine = anchorRes.anchor
+    ? `\n★★ 時間錨點：以 ${anchorRes.anchor} 這次 HIPEC 為基準判斷術前/術後，多次 HIPEC 只採用這一次。★★\n`
+    : '';
+
   setSecStatus('loading',`Gemini 正在分析 ${imgs.length} 個檔案，請稍候…`);
 
   const fieldList=secScanFields.map(f=>`- ${f.label}（類型：${f.type}${f.options?'，選項：'+f.options:''}）`).join('\n');
@@ -3316,7 +3421,7 @@ async function runSecAIScan(){
   try{
     const ctxPrefix=await aiContextPrefix();
     const parts=filesToGeminiParts(imgs);
-    parts.push({text:`${ctxPrefix}你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。若上方有「時間錨點」說明，務必依該時間點區分術前/術後數值，不要混填。select 類型只回覆選項中完全相符的值。不要 markdown。`});
+    parts.push({text:`${ctxPrefix}${anchorLine}你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。若上方有「時間錨點」說明，務必依該時間點區分術前/術後數值，不要混填。select 類型只回覆選項中完全相符的值。不要 markdown。`});
 
     const resp=await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -3535,13 +3640,26 @@ async function startAIScan(){
 
   const btn=document.getElementById('ai-scan-btn');
   btn.disabled=true;btn.textContent=`🤖 辨識中（${imgs.length} 個檔案）...`;
+
+  // 先解析多次 HIPEC 時間錨點
+  setAIStatus('loading','正在確認 HIPEC 手術次數…');
+  const anchorRes=await resolveHipecAnchor(imgs, apiKey);
+  if(anchorRes.cancelled){
+    btn.disabled=false; btn.textContent='🤖 開始 Gemini 辨識';
+    setAIStatus('ready','已取消，請重新選擇');
+    return;
+  }
+  const anchorLine = anchorRes.anchor
+    ? `\n★★ 本次記錄的時間錨點：以 ${anchorRes.anchor} 這次 HIPEC 手術為基準。所有 Pre-HIPEC/Post-HIPEC 判斷都以這一天為準，多次 HIPEC 只採用這一次。★★\n`
+    : '';
+
   setAIStatus('loading',`Gemini 正在分析 ${imgs.length} 個病歷檔案，請稍候...`);
 
   try{
     // 組合圖片 / PDF / 文字檔的 parts
     const ctxPrefix=await aiContextPrefix();
     const parts=filesToGeminiParts(imgs);
-    parts.push({text:`${ctxPrefix}你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
+    parts.push({text:`${ctxPrefix}${anchorLine}你是一個醫療資料萃取助理。請仔細閱讀以上 ${imgs.length} 個病歷附件（可能包含圖片、PDF、Word、Excel、文字檔），綜合所有內容，從中萃取資訊並對應到以下問卷欄位。
 
 問卷欄位清單：
 ${fieldList}

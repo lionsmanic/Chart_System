@@ -1288,7 +1288,7 @@ function dupChoose(el){
 async function vProject(){
   const p=await dbGet('projects',PID);
   if(!p){goHome();return;}
-  const cases=await dbIdx('cases','pid',PID);
+  const cases=sortCases(await dbIdx('cases','pid',PID));
   // 欄位順序：按分區分組，與欄位設定頁顯示順序完全一致
   const fields=getOrderedFields(p.fields||DEFAULT_FIELDS);
   document.getElementById('hbreadcrumb').textContent='/ '+p.name;
@@ -1323,6 +1323,16 @@ async function vProject(){
     <div id="tc-table" style="display:none">${buildTable(cases,fields,p)}</div>`;
   // 初次渲染列表（預設 tab）
   setTimeout(()=>renderVlistRows(),20);
+}
+
+// 病例顯示排序：優先用 sortOrder，未設定的排在後面（依 createdAt）
+function sortCases(cases){
+  return [...cases].sort((a,b)=>{
+    const ao=(a.sortOrder!==undefined&&a.sortOrder!==null)?a.sortOrder:Number.MAX_SAFE_INTEGER;
+    const bo=(b.sortOrder!==undefined&&b.sortOrder!==null)?b.sortOrder:Number.MAX_SAFE_INTEGER;
+    if(ao!==bo) return ao-bo;
+    return (a.createdAt||0)-(b.createdAt||0);
+  });
 }
 
 // 按分區分組排序欄位，確保與欄位設定頁視覺順序一致
@@ -1381,11 +1391,14 @@ function renderVlistRows(){
   for(let i=startIdx;i<endIdx;i++){
     const c=cases[i];
     if(!c) continue;
+    const posNum=i+1; // 顯示位置（1-based）
     html+=`<tr onclick="goCase('${c.id}','${p.id}')">
-      <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px">${c._origIdx!==undefined?String(c._origIdx+1).padStart(3,'0'):String(i+1).padStart(3,'0')}</td>
+      <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px;cursor:pointer" title="點擊輸入要移到第幾位" onclick="event.stopPropagation();promptMoveCase('${c.id}',${posNum})">${String(posNum).padStart(3,'0')}</td>
       ${cols.map((f,ci)=>`<td class="${ci===0?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
       <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
       <td style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" title="上移" style="padding:3px 7px" onclick="event.stopPropagation();moveCaseByStep('${c.id}',-1)">▲</button>
+        <button class="btn btn-ghost btn-sm" title="下移" style="padding:3px 7px" onclick="event.stopPropagation();moveCaseByStep('${c.id}',1)">▼</button>
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();goCase('${c.id}','${p.id}')">開啟</button>
         <button class="btn btn-ghost btn-sm" title="複製此病人到其他 Project" onclick="event.stopPropagation();showCopyToProject('${c.id}')">📋</button>
       </td>
@@ -1393,6 +1406,60 @@ function renderVlistRows(){
   }
   if(bottomH>0) html+=`<tr class="vscroll-spacer-row" style="height:${bottomH}px"><td colspan="${colSpan}"></td></tr>`;
   tbody.innerHTML=html;
+}
+
+// ── 病例顯示順序調整 ────────────────────────────────────────────────
+// 將目前列表順序寫回每筆 case 的 sortOrder（0,1,2…），再存 DB
+async function persistCaseOrder(orderedCases){
+  for(let i=0;i<orderedCases.length;i++){
+    const c=orderedCases[i];
+    if(c.sortOrder!==i){
+      c.sortOrder=i;
+      await dbPut('cases',c);
+    }
+  }
+}
+
+// 是否正在搜尋（搜尋時停用排序，避免順序錯亂）
+function isSearchActive(){
+  const q=(document.getElementById('search')?.value||'').trim();
+  return q.length>0;
+}
+
+// 上移/下移一格
+async function moveCaseByStep(cid, delta){
+  if(!vsList) return;
+  if(isSearchActive()){ toast('搜尋中無法調整順序，請先清除搜尋'); return; }
+  const arr=[...vsList.allCases];
+  const idx=arr.findIndex(c=>c.id===cid);
+  if(idx<0) return;
+  const ni=idx+delta;
+  if(ni<0||ni>=arr.length) return; // 已在頭/尾
+  [arr[idx],arr[ni]]=[arr[ni],arr[idx]];
+  await persistCaseOrder(arr);
+  vsList.cases=arr; vsList.allCases=arr;
+  renderVlistRows();
+}
+
+// 輸入目標位置移動（如 100 → 15）
+async function promptMoveCase(cid, curPos){
+  if(!vsList) return;
+  if(isSearchActive()){ toast('搜尋中無法調整順序，請先清除搜尋'); return; }
+  const total=vsList.allCases.length;
+  const input=prompt(`目前在第 ${curPos} 位，共 ${total} 筆。\n要移到第幾位？（1 ~ ${total}）`, curPos);
+  if(input===null) return;
+  const target=parseInt(input,10);
+  if(isNaN(target)||target<1||target>total){ toast('請輸入有效的位置'); return; }
+  if(target===curPos) return;
+  const arr=[...vsList.allCases];
+  const idx=arr.findIndex(c=>c.id===cid);
+  if(idx<0) return;
+  const [moved]=arr.splice(idx,1);      // 取出
+  arr.splice(target-1,0,moved);          // 插入到目標位置（1-based → 0-based）
+  await persistCaseOrder(arr);
+  vsList.cases=arr; vsList.allCases=arr;
+  renderVlistRows();
+  toast(`✅ 已移到第 ${target} 位`);
 }
 
 let vsListRAF=null;
@@ -5320,9 +5387,13 @@ async function delProject(pid){
 // ── New case ───────────────────────────────────────────────────────────────
 async function newCase(pid){
   const cs=await dbIdx('cases','pid',pid);
-  // 不預先複製 defaultPhotoNote 進 __photoNote，讓新病例預設處於「連動模式」
-  // 一旦使用者修改 textarea 才會轉為自訂模式並儲存內容
-  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data:{},createdAt:Date.now()};
+  // 新病例排在最後：sortOrder = 目前最大值 + 1
+  let maxOrder=-1;
+  for(const c of cs){
+    const o=(c.sortOrder!==undefined&&c.sortOrder!==null)?c.sortOrder:-1;
+    if(o>maxOrder) maxOrder=o;
+  }
+  const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data:{},sortOrder:maxOrder+1,createdAt:Date.now()};
   await dbPut('cases',c);goCase(c.id,pid);
 }
 

@@ -1360,7 +1360,7 @@ function buildList(cases,fields,cols,p){
     <div class="vscroll-wrap" id="vlist-wrap" onscroll="onVlistScroll()" style="overflow:auto">
       <table id="list-table" style="min-width:100%">
         <thead><tr>
-          <th>#</th>
+          <th title="灰字＝排序位置，#數字＝病例號">位置 · 病例號</th>
           ${cols.map(f=>`<th>${escH(f.label)}</th>`).join('')}
           <th>建立日期</th>
           <th></th>
@@ -1392,8 +1392,13 @@ function renderVlistRows(){
     const c=cases[i];
     if(!c) continue;
     const posNum=i+1; // 顯示位置（1-based）
+    const caseNo=c.caseNum||String(i+1).padStart(3,'0');
     html+=`<tr onclick="goCase('${c.id}','${p.id}')">
-      <td class="tdmuted" style="font-family:'DM Mono',monospace;font-size:11px;cursor:pointer" title="點擊輸入要移到第幾位" onclick="event.stopPropagation();promptMoveCase('${c.id}',${posNum})">${String(posNum).padStart(3,'0')}</td>
+      <td style="white-space:nowrap" title="灰色小字＝目前排序位置（點擊可移動）；#數字＝病例號（固定不變）">
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);cursor:pointer;padding:2px 4px;border-radius:4px;background:var(--cream)"
+          onclick="event.stopPropagation();promptMoveCase('${c.id}',${posNum})">${String(posNum).padStart(3,'0')}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2);font-weight:600;margin-left:6px">#${escH(caseNo)}</span>
+      </td>
       ${cols.map((f,ci)=>`<td class="${ci===0?'tdname':''}">${escH(c.data[f.id]||'—')}</td>`).join('')}
       <td class="tdmuted">${new Date(c.createdAt).toLocaleDateString('zh-TW')}</td>
       <td style="white-space:nowrap">
@@ -1582,8 +1587,8 @@ function renderVscrollRows(){
     if(!c) continue;
     const alive=isAlive(c);
     html+=`<tr>
-      <td class="tdmuted" onclick="goCase('${c.id}','${p.id}')" title="點擊開啟問卷" style="white-space:nowrap">
-        ${alive?`<span class="followup-badge" title="病人存活中，記得持續追蹤更新">🟢 需追蹤</span> `:''}${c.caseNum||String(i+1).padStart(3,'0')}
+      <td class="tdmuted" onclick="goCase('${c.id}','${p.id}')" title="灰字＝排序位置，#數字＝病例號（點擊開啟）" style="white-space:nowrap">
+        ${alive?`<span class="followup-badge" title="病人存活中，記得持續追蹤更新">🟢</span> `:''}<span style="font-size:10px;color:var(--muted)">${String(i+1).padStart(3,'0')}</span> <span style="font-weight:600">#${escH(c.caseNum||String(i+1).padStart(3,'0'))}</span>
       </td>`;
     for(const f of fields){
       const v=c.data[f.id]||'';

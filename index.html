@@ -2721,7 +2721,7 @@ ${targetSpec}
 
   try{
     const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})}
     );
     if(!resp.ok){const err=await resp.json();throw new Error(err.error?.message||`HTTP ${resp.status}`);}
@@ -2982,7 +2982,7 @@ async function resolveHipecAnchor(files, apiKey){
 - 不要其他文字、不要 markdown`});
 
     const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
     );
     if(!resp.ok) return {anchor:null, cancelled:false}; // 失敗就不擋，照常掃描
@@ -3114,7 +3114,7 @@ ${specBySection}
 - 只回覆 JSON，不要說明文字、不要 markdown`});
 
     const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
     );
     if(!resp.ok){ const err=await resp.json(); throw new Error(err.error?.message||`HTTP ${resp.status}`); }
@@ -3496,7 +3496,7 @@ async function runSecAIScan(){
     parts.push({text:`${ctxPrefix}${anchorLine}你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。若上方有「時間錨點」說明，務必依該時間點區分術前/術後數值，不要混填。select 類型只回覆選項中完全相符的值。不要 markdown。`});
 
     const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
     );
     if(!resp.ok){ const err=await resp.json(); throw new Error(err.error?.message||`HTTP ${resp.status}`); }
@@ -3746,7 +3746,7 @@ ${fieldList}
 - 只回覆 JSON，不要其他說明文字、不要 markdown`});
 
     const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method:'POST',
         headers:{'Content-Type':'application/json'},

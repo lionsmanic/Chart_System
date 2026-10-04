@@ -1301,6 +1301,7 @@ async function vProject(){
     </label>
     <button class="btn btn-ghost" onclick="applyDefaultsToAll('${p.id}')" title="一次填入所有病例的空白欄位（不會洗掉已填內容）">💡 套用預設值</button>
     <button class="btn btn-ghost" onclick="vSettings('${p.id}')">⚙️ 欄位設定</button>
+    <button class="btn btn-ghost" onclick="showBatchImport('${p.id}')" title="一次上傳多位病人的檔案，依病歷號/姓名自動分組並建立多筆病例">🗂️ 批次辨識多病例</button>
     <button class="btn btn-primary" onclick="newCase('${p.id}')">＋ 新增病例</button>`;
   const listCols = fields.slice(0, 2);
   document.getElementById('app').innerHTML=`
@@ -5400,6 +5401,341 @@ async function newCase(pid){
   }
   const c={id:uid(),projectId:pid,caseNum:String(cs.length+1).padStart(3,'0'),data:{},sortOrder:maxOrder+1,createdAt:Date.now()};
   await dbPut('cases',c);goCase(c.id,pid);
+}
+
+// ════════════════════════════════════════════════════════════════
+// 🗂️ 批次辨識多病例：一次上傳多位病人檔案 → 依病歷號/姓名分組 → 建立多筆病例
+// ════════════════════════════════════════════════════════════════
+let batchPID=null;
+let batchFiles=[];   // [{item(readFileForAI結果), pname, chart, gkey}]
+let batchGroups=[];  // [{gkey, chart, pname, files:[idx...], results:{fid:val}, nameFid, chartFid}]
+
+async function showBatchImport(pid){
+  batchPID=pid; batchFiles=[]; batchGroups=[];
+  document.getElementById('batch-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="batch-modal" onclick="if(event.target.id==='batch-modal')closeBatch()">
+      <div class="modal" style="max-width:720px">
+        <div style="background:linear-gradient(135deg,var(--sage),var(--sage2));padding:20px 24px 16px;border-radius:19px 19px 0 0;color:#fff;position:relative;flex-shrink:0">
+          <div style="font-size:16px;font-weight:800;margin-bottom:4px">🗂️ 批次辨識多病例</div>
+          <div style="font-size:12px;opacity:.85">一次上傳多位病人的檔案 · 依病歷號／姓名自動分組 · 逐位建立病例</div>
+          <button onclick="closeBatch()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="font-size:12px;font-weight:800;color:var(--sage);letter-spacing:.5px;margin-bottom:8px">① 上傳所有病人的檔案</div>
+          <div id="batch-upload" onclick="document.getElementById('batch-file-input').click()"
+            ondragover="event.preventDefault();this.style.background='var(--sage-light)'" ondragleave="this.style.background='var(--cream)'"
+            ondrop="handleBatchDrop(event)"
+            style="border:2px dashed var(--border);border-radius:12px;padding:24px;text-align:center;cursor:pointer;background:var(--cream);margin-bottom:10px">
+            <div style="font-size:26px;margin-bottom:6px;opacity:.5">📂</div>
+            <div style="font-size:14px;font-weight:600;color:var(--ink2)">點此或拖曳多位病人的所有檔案到這裡</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px">支援 Excel / PDF / Word / 文字檔 · 檔案內須有病歷號與姓名</div>
+            <input type="file" id="batch-file-input" accept="${ACCEPT_ALL}" multiple style="display:none" onchange="handleBatchFiles(this)">
+          </div>
+          <div id="batch-filelist" style="margin-bottom:14px"></div>
+
+          <div id="batch-step2" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">
+              <span style="font-size:12px;font-weight:800;color:var(--sage);letter-spacing:.5px">② 確認分組（AI 依病歷號／姓名辨識）</span>
+            </div>
+            <div id="batch-groups"></div>
+          </div>
+
+          <div id="batch-status" style="display:none;padding:12px 15px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);align-items:center;gap:10px;margin:12px 0">
+            <span id="batch-status-icon">🟡</span><span id="batch-status-msg">準備就緒</span>
+          </div>
+
+          <div id="batch-preview-wrap" style="display:none">
+            <div style="font-size:12px;font-weight:800;color:var(--sage);letter-spacing:.5px;margin:16px 0 8px">③ 辨識結果（請勾選要寫入的欄位）</div>
+            <div id="batch-preview"></div>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="closeBatch()">取消</button>
+          <button class="btn btn-primary" id="batch-identify-btn" onclick="batchIdentify()" style="display:none">① 辨識並分組</button>
+          <button class="btn btn-primary" id="batch-scan-btn" onclick="batchScan()" style="display:none">② 開始辨識各病人</button>
+          <button class="btn btn-success" id="batch-create-btn" onclick="batchCreate()" style="display:none">③ 建立病例</button>
+        </div>
+      </div>
+    </div>`);
+}
+function closeBatch(){ document.getElementById('batch-modal')?.remove(); batchFiles=[]; batchGroups=[]; }
+
+function handleBatchDrop(e){ e.preventDefault(); document.getElementById('batch-upload').style.background='var(--cream)'; addBatchFiles([...e.dataTransfer.files]); }
+function handleBatchFiles(input){ addBatchFiles([...input.files]); input.value=''; }
+async function addBatchFiles(files){
+  const errors=[];
+  for(const file of files){
+    try{ const item=await readFileForAI(file); batchFiles.push({item, pname:'', chart:'', gkey:''}); }
+    catch(err){ errors.push(err.message); }
+  }
+  if(errors.length) toast('⚠️ '+errors[0],4000);
+  renderBatchFiles();
+}
+function renderBatchFiles(){
+  const el=document.getElementById('batch-filelist'); if(!el) return;
+  if(!batchFiles.length){ el.innerHTML=''; document.getElementById('batch-identify-btn').style.display='none'; return; }
+  el.innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:6px">已上傳 ${batchFiles.length} 個檔案</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">`+
+    batchFiles.map((bf,i)=>`<div style="display:flex;align-items:center;gap:5px;background:var(--cream);border:1px solid var(--border2);border-radius:7px;padding:4px 9px;font-size:12px">
+      <span>${bf.item.kind==='pdf'?'📕':(bf.item.isExcel?'📊':'📄')}</span>
+      <span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(bf.item.name)}</span>
+      <span onclick="batchFiles.splice(${i},1);renderBatchFiles()" style="cursor:pointer;color:var(--red);font-weight:700">✕</span>
+    </div>`).join('')+`</div>`;
+  document.getElementById('batch-identify-btn').style.display='inline-flex';
+}
+
+function setBatchStatus(state,msg){
+  const icons={ready:'🟡',loading:'⏳',done:'✅',error:'❌'};
+  const el=document.getElementById('batch-status'); if(!el) return;
+  el.style.display='flex';
+  document.getElementById('batch-status-icon').textContent=icons[state]||'⏳';
+  document.getElementById('batch-status-msg').textContent=msg;
+  el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
+}
+
+// ① 辨識每個檔案的病歷號+姓名 → 分組
+async function batchIdentify(){
+  const apiKey=getGeminiKey();
+  if(!apiKey){ toast('請先設定 Gemini API Key（在任一病例的「AI 掃描病歷」視窗中輸入過即可）'); return; }
+  if(!batchFiles.length){ toast('請先上傳檔案'); return; }
+  const btn=document.getElementById('batch-identify-btn');
+  btn.disabled=true; btn.textContent='⏳ 辨識中…';
+  setBatchStatus('loading',`正在辨識 ${batchFiles.length} 個檔案的病歷號與姓名…`);
+  try{
+    const parts=filesToGeminiParts(batchFiles.map(bf=>bf.item));
+    parts.push({text:`以上有 ${batchFiles.length} 個病歷附件，依序編號為附件 1 到附件 ${batchFiles.length}。
+請判斷「每一個附件」各屬於哪一位病人，抓出病歷號(chart number)與姓名。
+只回覆 JSON 陣列，格式：[{"idx":1,"chart":"病歷號","name":"姓名"}, ...]
+- idx 對應附件編號(1起算)
+- 病歷號通常是一串數字；姓名是中文
+- 若某附件找不到病歷號或姓名，該欄填空字串
+- 只回覆 JSON，不要說明文字、不要 markdown`});
+    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})});
+    if(!resp.ok){ const e=await resp.json(); throw new Error(e.error?.message||`HTTP ${resp.status}`); }
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'[]';
+    const arr=JSON.parse(text.replace(/```json|```/g,'').trim());
+    // 填回 batchFiles
+    for(const r of arr){
+      const i=(r.idx||0)-1;
+      if(i>=0 && i<batchFiles.length){
+        batchFiles[i].chart=String(r.chart||'').trim();
+        batchFiles[i].pname=String(r.name||'').trim();
+      }
+    }
+    buildBatchGroups();
+    renderBatchGroups();
+    document.getElementById('batch-step2').style.display='';
+    document.getElementById('batch-scan-btn').style.display='inline-flex';
+    setBatchStatus('done',`辨識完成，共分出 ${batchGroups.length} 位病人。請確認分組後按「②」`);
+  }catch(err){
+    setBatchStatus('error','辨識失敗：'+err.message);
+  }
+  btn.disabled=false; btn.textContent='① 重新辨識並分組';
+}
+
+// 依病歷號(優先)或姓名分組
+function buildBatchGroups(){
+  const map={};
+  batchFiles.forEach((bf,i)=>{
+    const key=(bf.chart||bf.pname||('未辨識_'+i)).trim();
+    bf.gkey=key;
+    (map[key] ??= {gkey:key, chart:bf.chart, pname:bf.pname, files:[]});
+    map[key].files.push(i);
+    if(!map[key].chart && bf.chart) map[key].chart=bf.chart;
+    if(!map[key].pname && bf.pname) map[key].pname=bf.pname;
+  });
+  batchGroups=Object.values(map);
+}
+
+function renderBatchGroups(){
+  const el=document.getElementById('batch-groups'); if(!el) return;
+  const allKeys=batchGroups.map(g=>g.gkey);
+  el.innerHTML=batchGroups.map((g,gi)=>`
+    <div style="border:1.5px solid var(--border2);border-radius:11px;padding:12px 14px;margin-bottom:9px;background:var(--card)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:18px">👤</span>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:700;color:var(--ink)">${escH(g.pname||'（未辨識姓名）')} ${g.chart?`<span style="font-size:12px;color:var(--muted);font-weight:500">病歷號 ${escH(g.chart)}</span>`:''}</div>
+          <div style="font-size:11px;color:var(--muted)">${g.files.length} 個檔案</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        ${g.files.map(fi=>`<span style="display:inline-flex;align-items:center;gap:4px;background:var(--cream);border:1px solid var(--border2);border-radius:6px;padding:3px 8px;font-size:11px">
+          ${batchFiles[fi].item.kind==='pdf'?'📕':(batchFiles[fi].item.isExcel?'📊':'📄')}
+          <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(batchFiles[fi].item.name)}</span>
+        </span>`).join('')}
+      </div>
+    </div>`).join('')+
+    `<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">分組不對？可關閉重來，或先建立再到各病例手動調整</div>`;
+}
+
+// ② 逐位病人掃描
+async function batchScan(){
+  const apiKey=getGeminiKey();
+  if(!apiKey){ toast('請先設定 API Key'); return; }
+  if(!batchGroups.length){ toast('沒有可掃描的病人'); return; }
+  const p=await dbGet('projects',batchPID);
+  const allFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+  const notes=p.sectionNotes||{};
+  // 排除標註不需拍照的分區
+  const secNames=[...new Set(allFields.map(f=>f.section))].filter(sec=>{
+    const note=(notes[sec]||'').replace(/\s+/g,'');
+    return !/不需拍照|不用拍|無需拍照|不必拍/.test(note);
+  });
+  const targetFields=allFields.filter(f=>secNames.includes(f.section));
+  const specBySection=secNames.map(sec=>{
+    const fs=allFields.filter(f=>f.section===sec);
+    const note=(notes[sec]||'').trim();
+    const lines=fs.map(f=>{ let s=`  - "${sec}::${f.label}"（類型：${f.type}`; if(f.options) s+=`，可選值：${f.options}`; return s+'）'; }).join('\n');
+    return `【分區：${sec}】${note?`\n判讀提示：${note}`:''}\n${lines}`;
+  }).join('\n\n');
+  const ctxPrefix=await aiContextPrefix();
+
+  // ★ 比對現有病例：依病歷號(優先)或姓名，判斷每位病人要「更新」還是「新建」
+  const existingCases=await dbIdx('cases','pid',batchPID);
+  const chartF=allFields.find(f=>/病歷號|chart_number|chart|病歷/i.test(f.label));
+  const nameF=allFields.find(f=>/姓名|name|病患|病人/i.test(f.label));
+  for(const g of batchGroups){
+    let match=null;
+    if(chartF && g.chart){
+      match=existingCases.find(c=>String(c.data?.[chartF.id]||'').trim()===g.chart.trim());
+    }
+    if(!match && nameF && g.pname){
+      match=existingCases.find(c=>String(c.data?.[nameF.id]||'').trim()===g.pname.trim());
+    }
+    g.targetCaseId = match ? match.id : null;       // null = 新建
+    g.targetCaseNum = match ? (match.caseNum||'') : '';
+    g.existingData = match ? (match.data||{}) : {};
+  }
+
+  const btn=document.getElementById('batch-scan-btn');
+  btn.disabled=true; btn.textContent='⏳ 辨識中…';
+
+  let done=0;
+  for(const g of batchGroups){
+    done++;
+    setBatchStatus('loading',`正在辨識第 ${done}/${batchGroups.length} 位：${g.pname||g.chart}…`);
+    const files=g.files.map(fi=>batchFiles[fi].item);
+    try{
+      const parts=filesToGeminiParts(files);
+      parts.push({text:`${ctxPrefix}你是醫療資料萃取助理。以上是病人「${g.pname||''} 病歷號${g.chart||''}」的病歷附件，請綜合所有內容，萃取下列各分區欄位。
+
+${specBySection}
+
+請以 JSON 回覆：key 必須完全用引號中的「分區::欄位名稱」字串，value 為找到的內容。
+規則：沒找到的欄位省略該 key；日期用 YYYY-MM-DD；select 只回覆可選值中完全相符者；multiselect 多值用 | 分隔；只回覆 JSON、不要 markdown。`});
+      const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
+        {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})});
+      if(!resp.ok){ const e=await resp.json(); throw new Error(e.error?.message||`HTTP ${resp.status}`); }
+      const data=await resp.json();
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+      const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+      const results={};
+      for(const f of targetFields){
+        let v=parsed[`${f.section}::${f.label}`]; if(v===undefined) v=parsed[f.label];
+        if(v===undefined||v===null||v===''||v==='無') continue;
+        results[f.id]=String(v);
+      }
+      // 自動補上姓名/病歷號欄位（若系統有對應欄位且 AI 沒抓到）
+      const nameF=allFields.find(f=>/姓名|name|病患|病人/i.test(f.label));
+      const chartF=allFields.find(f=>/病歷號|chart|chart_number|病歷/i.test(f.label));
+      if(nameF && g.pname && !results[nameF.id]) results[nameF.id]=g.pname;
+      if(chartF && g.chart && !results[chartF.id]) results[chartF.id]=g.chart;
+      g.results=results;
+    }catch(err){
+      g.results={}; g.error=err.message;
+    }
+  }
+  renderBatchPreview(allFields);
+  document.getElementById('batch-preview-wrap').style.display='';
+  document.getElementById('batch-create-btn').style.display='inline-flex';
+  const totalVals=batchGroups.reduce((s,g)=>s+Object.keys(g.results||{}).length,0);
+  setBatchStatus('done',`辨識完成！${batchGroups.length} 位病人共取得 ${totalVals} 個欄位值，請勾選確認`);
+  btn.disabled=false; btn.textContent='② 重新辨識各病人';
+}
+
+function renderBatchPreview(allFields){
+  const fmap={}; allFields.forEach(f=>fmap[f.id]=f);
+  const el=document.getElementById('batch-preview'); if(!el) return;
+  el.innerHTML=batchGroups.map((g,gi)=>{
+    const entries=Object.entries(g.results||{});
+    const isUpdate = !!g.targetCaseId;
+    const targetBadge = isUpdate
+      ? `<span style="font-size:11px;font-weight:700;color:#fff;background:var(--gold);padding:2px 9px;border-radius:9px">↻ 更新現有 #${escH(g.targetCaseNum)}</span>`
+      : `<span style="font-size:11px;font-weight:700;color:#fff;background:var(--sage);padding:2px 9px;border-radius:9px">＋ 新建病例</span>`;
+    let owCount=0;
+    const rows=entries.map(([fid,val])=>{
+      const f=fmap[fid]; if(!f) return '';
+      const disp=f.type==='multiselect'?String(val).replace(/\|/g,'、'):val;
+      // 更新模式：目標已有不同值 → 覆蓋警示、預設不勾
+      const cur = isUpdate ? g.existingData[fid] : undefined;
+      const curStr = cur===undefined||cur===null?'':String(cur);
+      const willOverwrite = isUpdate && curStr && curStr!==String(val);
+      if(willOverwrite) owCount++;
+      const curDisp=curStr.replace(/\|/g,'、');
+      return `<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 14px;border-top:1px solid var(--border2);cursor:pointer;${willOverwrite?'background:#FEF9F0':''}">
+        <input type="checkbox" class="batch-cb" data-gi="${gi}" data-fid="${fid}" ${willOverwrite?'':'checked'} style="width:15px;height:15px;margin-top:2px;accent-color:${willOverwrite?'var(--red)':'var(--sage)'};cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--muted);font-weight:700">${escH(f.section)} · ${escH(f.label)}</div>
+          ${willOverwrite?`
+            <div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);padding:1px 6px;border-radius:8px">原有</span><span style="font-size:13px;color:var(--muted);text-decoration:line-through;word-break:break-all">${escH(curDisp)}</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;font-weight:700;color:#fff;background:var(--sage);padding:1px 6px;border-radius:8px">AI</span><span style="font-size:14px;color:var(--ink);font-weight:700;word-break:break-all">${escH(disp)}</span></div>
+          `:`<div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all">${escH(disp)}</div>`}
+        </div>
+      </label>`;
+    }).join('');
+    return `
+    <div style="border:1.5px solid var(--border2);border-radius:11px;margin-bottom:10px;overflow:hidden">
+      <div style="background:var(--sage-light);padding:9px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:16px">👤</span>
+        <span style="font-size:14px;font-weight:700;color:var(--ink);flex:1">${escH(g.pname||'（未辨識）')} ${g.chart?`<span style="font-size:12px;color:var(--muted);font-weight:500">病歷號 ${escH(g.chart)}</span>`:''}</span>
+        ${targetBadge}
+        <span style="font-size:11px;color:var(--sage);font-weight:700">${entries.length} 項${owCount?`・${owCount} 覆蓋`:''}${g.error?' ⚠️失敗':''}</span>
+      </div>
+      ${g.error?`<div style="padding:11px 14px;font-size:12px;color:var(--red)">辨識失敗：${escH(g.error)}</div>`:
+        (entries.length?rows:`<div style="padding:11px 14px;font-size:12px;color:var(--muted)">未取得任何欄位值</div>`)}
+      ${isUpdate?`<div style="padding:7px 14px;font-size:11px;color:var(--muted);background:var(--cream);border-top:1px solid var(--border2)">↻ 此病人已存在（病歷號相符）→ 會更新現有病例 #${escH(g.targetCaseNum)}；標紅的欄位會覆蓋原值，已預設不勾選</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ③ 建立／更新病例
+async function batchCreate(){
+  const pid=batchPID;
+  const existing=await dbIdx('cases','pid',pid);
+  let maxOrder=-1; for(const c of existing){ const o=c.sortOrder??-1; if(o>maxOrder)maxOrder=o; }
+  let created=0, updated=0, filled=0, n=0;
+  for(let gi=0; gi<batchGroups.length; gi++){
+    const g=batchGroups[gi];
+    const checks=document.querySelectorAll(`.batch-cb[data-gi="${gi}"]:checked`);
+    if(!checks.length && !(g.pname||g.chart)) continue;
+
+    if(g.targetCaseId){
+      // 更新現有病例：只寫入勾選的欄位
+      const tgt=await dbGet('cases',g.targetCaseId);
+      if(tgt){
+        checks.forEach(cb=>{ tgt.data[cb.dataset.fid]=g.results[cb.dataset.fid]; filled++; });
+        tgt.updatedAt=Date.now();
+        await dbPut('cases',tgt);
+        updated++;
+      }
+    } else {
+      // 新建病例
+      const data={};
+      checks.forEach(cb=>{ data[cb.dataset.fid]=g.results[cb.dataset.fid]; filled++; });
+      n++;
+      const c={ id:uid(), projectId:pid, caseNum:String(existing.length+n).padStart(3,'0'),
+        data, sortOrder:maxOrder+n, createdAt:Date.now(), updatedAt:Date.now() };
+      await dbPut('cases',c);
+      created++;
+    }
+  }
+  closeBatch();
+  toast(`✅ 新建 ${created} 筆、更新 ${updated} 筆病例，共填入 ${filled} 個欄位`);
+  if(typeof vProject==='function') vProject();
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────

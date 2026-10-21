@@ -2958,13 +2958,25 @@ function toggleAllFullSec(on){
   document.querySelectorAll('.full-sec-cb').forEach(cb=>cb.checked=on);
 }
 
+// ── 掃描跳秒計時器：loading 時每秒更新「⏱ N 秒」，證明 AI 還在運作 ──
+let __scanTimer=null;
+function startScanTimer(msgElId, baseMsg){
+  stopScanTimer();
+  const t0=Date.now();
+  const paint=()=>{ const e=document.getElementById(msgElId); if(e) e.textContent=baseMsg+'　⏱ '+Math.floor((Date.now()-t0)/1000)+' 秒'; };
+  paint();
+  __scanTimer=setInterval(paint,1000);
+}
+function stopScanTimer(){ if(__scanTimer){clearInterval(__scanTimer);__scanTimer=null;} }
+
 function setFullStatus(state,msg){
   const icons={ready:'🟡',loading:'⏳',done:'✅',error:'❌'};
   const el=document.getElementById('full-status');
   if(!el) return;
   el.style.display='flex';
   document.getElementById('full-status-icon').textContent=icons[state]||'⏳';
-  document.getElementById('full-status-msg').textContent=msg;
+  if(state==='loading'){ startScanTimer('full-status-msg',msg); }
+  else { stopScanTimer(); document.getElementById('full-status-msg').textContent=msg; }
   el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
 }
 
@@ -3452,7 +3464,8 @@ function setSecStatus(state,msg){
   if(!el) return;
   el.style.display='flex';
   document.getElementById('sec-status-icon').textContent=icons[state]||'⏳';
-  document.getElementById('sec-status-msg').textContent=msg;
+  if(state==='loading'){ startScanTimer('sec-status-msg',msg); }
+  else { stopScanTimer(); document.getElementById('sec-status-msg').textContent=msg; }
   el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
 }
 
@@ -3697,7 +3710,8 @@ function setAIStatus(state,msg){
   const el=document.getElementById('ai-status');
   if(!el)return;
   document.getElementById('ai-status-icon').textContent=icons[state]||'⏳';
-  document.getElementById('ai-status-msg').textContent=msg;
+  if(state==='loading'){ startScanTimer('ai-status-msg',msg); }
+  else { stopScanTimer(); document.getElementById('ai-status-msg').textContent=msg; }
   el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'#FDFAF6';
 }
 
@@ -5441,8 +5455,9 @@ async function showBatchImport(pid){
             <div id="batch-groups"></div>
           </div>
 
-          <div id="batch-status" style="display:none;padding:12px 15px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);align-items:center;gap:10px;margin:12px 0">
-            <span id="batch-status-icon">🟡</span><span id="batch-status-msg">準備就緒</span>
+          <div id="batch-status" style="display:none;flex-direction:column;align-items:stretch;padding:12px 15px;border-radius:10px;background:var(--card);border:1px solid var(--border2);font-size:13px;color:var(--muted);gap:8px;margin:12px 0">
+            <div style="display:flex;align-items:center;gap:10px"><span id="batch-status-icon">🟡</span><span id="batch-status-msg" style="flex:1">準備就緒</span></div>
+            <div style="height:6px;background:var(--border2);border-radius:4px;overflow:hidden"><div id="batch-progress-bar" style="height:100%;width:0%;background:var(--sage);transition:width .3s"></div></div>
           </div>
 
           <div id="batch-preview-wrap" style="display:none">
@@ -5490,8 +5505,12 @@ function setBatchStatus(state,msg){
   const el=document.getElementById('batch-status'); if(!el) return;
   el.style.display='flex';
   document.getElementById('batch-status-icon').textContent=icons[state]||'⏳';
-  document.getElementById('batch-status-msg').textContent=msg;
+  if(state==='loading'){ startScanTimer('batch-status-msg',msg); }
+  else { stopScanTimer(); document.getElementById('batch-status-msg').textContent=msg; }
   el.style.background=state==='done'?'#EEF7F4':state==='error'?'#FAF0EE':'var(--card)';
+  // 進度條
+  const bar=document.getElementById('batch-progress-bar');
+  if(bar) bar.style.width=(state==='done'?100:(window.__batchPct||0))+'%';
 }
 
 // ① 辨識每個檔案的病歷號+姓名 → 分組
@@ -5575,6 +5594,7 @@ function renderBatchGroups(){
 // ② 逐位病人掃描
 async function batchScan(){
   const apiKey=getGeminiKey();
+  window.__batchPct=0;
   if(!apiKey){ toast('請先設定 API Key'); return; }
   if(!batchGroups.length){ toast('沒有可掃描的病人'); return; }
   const p=await dbGet('projects',batchPID);
@@ -5617,7 +5637,9 @@ async function batchScan(){
   let done=0;
   for(const g of batchGroups){
     done++;
-    setBatchStatus('loading',`正在辨識第 ${done}/${batchGroups.length} 位：${g.pname||g.chart}…`);
+    const pct=Math.round((done-1)/batchGroups.length*100);
+    window.__batchPct=pct;
+    setBatchStatus('loading',`正在辨識第 ${done}/${batchGroups.length} 位（${pct}%）：${g.pname||g.chart}…`);
     const files=g.files.map(fi=>batchFiles[fi].item);
     try{
       const parts=filesToGeminiParts(files);

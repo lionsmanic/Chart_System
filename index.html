@@ -5657,8 +5657,35 @@ ${specBySection}
   btn.disabled=false; btn.textContent='② 重新辨識各病人';
 }
 
+// 批次預覽的可編輯控件：依欄位型別產生 input/select，編輯後直接更新 g.results
+function batchValInput(gi, fid, f, val){
+  const base="class='batch-val' data-gi='"+gi+"' data-fid='"+escH(fid)+"' oninput='batchEditVal(this)' onchange='batchEditVal(this)' onclick='event.preventDefault();event.stopPropagation()' style='width:100%;font-size:14px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;background:#fff;color:var(--ink);font-family:inherit'";
+  if(f.type==='select'){
+    const opts=(f.options||'').split(',').map(s=>s.trim()).filter(Boolean);
+    if(val && !opts.includes(val)) opts.unshift(val); // 保留 AI 給的非標準值
+    return "<select "+base+">"+["<option value=''>（清空）</option>"].concat(
+      opts.map(o=>"<option value=\""+escH(o)+"\""+(o===val?' selected':'')+">"+escH(o)+"</option>")).join('')+"</select>";
+  }
+  if(f.type==='date') return "<input type='date' value='"+escH(val)+"' "+base+">";
+  if(f.type==='number') return "<input type='number' step='any' value='"+escH(val)+"' "+base+">";
+  if(f.type==='textarea') return "<textarea rows='2' "+base+">"+escH(val)+"</textarea>";
+  if(f.type==='multiselect') return "<input type='text' value='"+escH(String(val).replace(/\|/g,'、'))+"' placeholder='多值用、分隔' "+base+">";
+  return "<input type='text' value='"+escH(val)+"' "+base+">";
+}
+// 編輯後寫回 g.results（multiselect 的、轉回 |）
+function batchEditVal(elm){
+  const gi=parseInt(elm.dataset.gi), fid=elm.dataset.fid;
+  const g=batchGroups[gi]; if(!g||!g.results) return;
+  let v=elm.value;
+  const f=(window.__batchFmap||{})[fid];
+  if(f && f.type==='multiselect') v=v.split('、').map(s=>s.trim()).filter(Boolean).join('|');
+  if(v===''||v===null||v===undefined){ delete g.results[fid]; }
+  else g.results[fid]=v;
+}
+
 function renderBatchPreview(allFields){
   const fmap={}; allFields.forEach(f=>fmap[f.id]=f);
+  window.__batchFmap=fmap;
   const el=document.getElementById('batch-preview'); if(!el) return;
   el.innerHTML=batchGroups.map((g,gi)=>{
     const entries=Object.entries(g.results||{});
@@ -5669,21 +5696,19 @@ function renderBatchPreview(allFields){
     let owCount=0;
     const rows=entries.map(([fid,val])=>{
       const f=fmap[fid]; if(!f) return '';
-      const disp=f.type==='multiselect'?String(val).replace(/\|/g,'、'):val;
       // 更新模式：目標已有不同值 → 覆蓋警示、預設不勾
       const cur = isUpdate ? g.existingData[fid] : undefined;
       const curStr = cur===undefined||cur===null?'':String(cur);
       const willOverwrite = isUpdate && curStr && curStr!==String(val);
       if(willOverwrite) owCount++;
       const curDisp=curStr.replace(/\|/g,'、');
-      return `<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 14px;border-top:1px solid var(--border2);cursor:pointer;${willOverwrite?'background:#FEF9F0':''}">
-        <input type="checkbox" class="batch-cb" data-gi="${gi}" data-fid="${fid}" ${willOverwrite?'':'checked'} style="width:15px;height:15px;margin-top:2px;accent-color:${willOverwrite?'var(--red)':'var(--sage)'};cursor:pointer">
+      const editor=batchValInput(gi, fid, f, String(val));
+      return `<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 14px;border-top:1px solid var(--border2);${willOverwrite?'background:#FEF9F0':''}">
+        <input type="checkbox" class="batch-cb" data-gi="${gi}" data-fid="${fid}" ${willOverwrite?'':'checked'} style="width:15px;height:15px;margin-top:8px;flex-shrink:0;accent-color:${willOverwrite?'var(--red)':'var(--sage)'};cursor:pointer">
         <div style="flex:1;min-width:0">
-          <div style="font-size:11px;color:var(--muted);font-weight:700">${escH(f.section)} · ${escH(f.label)}</div>
-          ${willOverwrite?`
-            <div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);padding:1px 6px;border-radius:8px">原有</span><span style="font-size:13px;color:var(--muted);text-decoration:line-through;word-break:break-all">${escH(curDisp)}</span></div>
-            <div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;font-weight:700;color:#fff;background:var(--sage);padding:1px 6px;border-radius:8px">AI</span><span style="font-size:14px;color:var(--ink);font-weight:700;word-break:break-all">${escH(disp)}</span></div>
-          `:`<div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all">${escH(disp)}</div>`}
+          <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:3px">${escH(f.section)} · ${escH(f.label)}</div>
+          ${willOverwrite?`<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px"><span style="font-size:10px;font-weight:700;color:#fff;background:var(--red);padding:1px 6px;border-radius:8px">原有</span><span style="font-size:13px;color:var(--muted);text-decoration:line-through;word-break:break-all">${escH(curDisp)}</span></div>`:''}
+          ${editor}
         </div>
       </label>`;
     }).join('');
@@ -5717,7 +5742,7 @@ async function batchCreate(){
       // 更新現有病例：只寫入勾選的欄位
       const tgt=await dbGet('cases',g.targetCaseId);
       if(tgt){
-        checks.forEach(cb=>{ tgt.data[cb.dataset.fid]=g.results[cb.dataset.fid]; filled++; });
+        checks.forEach(cb=>{ const v=g.results[cb.dataset.fid]; if(v===undefined||v===null||v==='')return; tgt.data[cb.dataset.fid]=v; filled++; });
         tgt.updatedAt=Date.now();
         await dbPut('cases',tgt);
         updated++;
@@ -5725,7 +5750,7 @@ async function batchCreate(){
     } else {
       // 新建病例
       const data={};
-      checks.forEach(cb=>{ data[cb.dataset.fid]=g.results[cb.dataset.fid]; filled++; });
+      checks.forEach(cb=>{ const v=g.results[cb.dataset.fid]; if(v===undefined||v===null||v==='')return; data[cb.dataset.fid]=v; filled++; });
       n++;
       const c={ id:uid(), projectId:pid, caseNum:String(existing.length+n).padStart(3,'0'),
         data, sortOrder:maxOrder+n, createdAt:Date.now(), updatedAt:Date.now() };

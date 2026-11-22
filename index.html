@@ -3194,10 +3194,11 @@ function renderFullScanResult(allFields){
         <span style="font-size:11px;font-weight:800;color:${color};letter-spacing:.6px;text-transform:uppercase;flex:1">${escH(sec)}</span>
         <span style="font-size:11px;color:var(--muted)">${bySec[sec].length} 項</span>
       </div>`;
-    html+=bySec[sec].map(({field,value,currentVal})=>{
+    html+=bySec[sec].map(({field,value,currentVal,reason})=>{
       const willOverwrite=currentVal&&currentVal!==value;
       const curD=currentVal.replace(/\|/g,'、');
       const newD=value.replace(/\|/g,'、');
+      const reasonHtml = reason ? `<div style="font-size:11px;color:var(--sage);margin-top:4px;line-height:1.5;padding:5px 8px;background:var(--sage-light);border-radius:6px"><span style="font-weight:700">判讀理由：</span>${escH(reason)}</div>` : '';
       return `
       <label style="display:flex;align-items:flex-start;gap:11px;padding:11px 14px;border-bottom:1px solid var(--border2);cursor:pointer;${willOverwrite?'background:#FEF9F0':''}">
         <input type="checkbox" class="full-res-cb" data-fid="${field.id}" ${willOverwrite?'':'checked'}
@@ -3213,9 +3214,11 @@ function renderFullScanResult(allFields){
               <span style="font-size:10px;font-weight:700;color:#fff;background:var(--sage);padding:1px 7px;border-radius:9px;flex-shrink:0">AI 讀取</span>
               <span style="font-size:14px;color:var(--ink);font-weight:700;word-break:break-all">${escH(newD)}</span>
             </div>
+            ${reasonHtml}
             <div style="font-size:11px;color:var(--red);margin-top:5px;font-weight:600">⚠️ 已有資料，確認 AI 讀的正確再打勾覆蓋</div>
           `:`
             <div style="font-size:14px;color:var(--ink);font-weight:600;word-break:break-all;line-height:1.5">${escH(newD)}</div>
+            ${reasonHtml}
           `}
         </div>
       </label>`;
@@ -3271,15 +3274,26 @@ async function parsePasteApply(){
 
   const p=await dbGet('projects',PID);
   const allFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+  const reasonsMap=parsed._reasons||parsed._理由||parsed._notes||{};
   fullScanResult={}; fullScanItems=[];
   for(const f of allFields){
-    let v=parsed[`${f.section}::${f.label}`];
-    if(v===undefined) v=parsed[f.label];
+    let entry=parsed[`${f.section}::${f.label}`];
+    if(entry===undefined) entry=parsed[f.label];
+    if(entry===undefined||entry===null||entry==='') continue;
+    // 支援兩種格式：純值字串，或 {value, reason/理由/note}
+    let v, reason='';
+    if(typeof entry==='object' && !Array.isArray(entry)){
+      v=entry.value!==undefined?entry.value:(entry.值!==undefined?entry.值:'');
+      reason=entry.reason||entry.理由||entry.note||entry.依據||'';
+    } else {
+      v=entry;
+    }
+    if(!reason){ reason=reasonsMap[`${f.section}::${f.label}`]||reasonsMap[f.label]||''; }
     if(v===undefined||v===null||v===''||v==='無') continue;
     v=String(v);
     fullScanResult[f.id]=v;
     const cur=formData[f.id];
-    fullScanItems.push({ field:f, section:f.section, value:v, currentVal: cur===undefined||cur===null?'':String(cur) });
+    fullScanItems.push({ field:f, section:f.section, value:v, reason:String(reason||''), currentVal: cur===undefined||cur===null?'':String(cur) });
   }
   if(!fullScanItems.length){ showErr('沒有對應到任何欄位。請確認 key 使用「分區::欄位名稱」或正確的欄位名稱'); return; }
 

@@ -1655,6 +1655,7 @@ async function vCase(){
     <button class="btn btn-ghost" onclick="applyDefaultsToCase()" title="只填入空白欄位，已填的不會洗掉">💡 套用預設值</button>
     <button class="btn btn-ghost" onclick="showFullScan()" title="用暫存區檔案，一次掃描所有分區的欄位">🚀 全區 AI 掃描</button>
     <button class="btn btn-ghost" onclick="showAIScan()" title="拍照上傳病歷，AI自動填入欄位">📷 AI 掃描病歷</button>
+    <button class="btn btn-ghost" onclick="showPasteApply()" title="貼上 Claude 聊天分析的結果（JSON），直接套用、免 API 費用">📋 貼上 AI 分析</button>
     <button class="btn btn-ghost" onclick="showCopyToProject('${c.id}')" title="把這位病人的資料複製到其他 Project（同名欄位）">📋 複製到其他 Project</button>
     <button class="btn btn-danger btn-sm" onclick="delCase('${c.id}')">🗑️ 刪除</button>
     <button class="btn btn-success" onclick="saveCase()">💾 儲存</button>`;
@@ -1811,10 +1812,27 @@ async function vCase(){
         </div>
         <div style="background:var(--cream);padding:20px">
           <div id="ai-apikey-wrap" style="margin-bottom:16px;padding:14px 16px;background:var(--card);border-radius:12px;border:1px solid var(--border2)">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.8px">Gemini API Key</div>
-            <div style="display:flex;gap:8px">
-              <input class="finput" type="password" id="gemini-key" placeholder="請輸入您的 Gemini API Key" style="flex:1">
-              <button class="btn btn-outline btn-sm" onclick="saveGeminiKey()">記住</button>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px">辨識引擎</div>
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <button class="engine-pick" data-engine="gemini" onclick="setAIEngine('gemini')" style="flex:1;padding:8px;border:1.5px solid var(--border);border-radius:9px;background:var(--card);color:var(--ink2);font-weight:700;font-size:13px;cursor:pointer">Gemini</button>
+              <button class="engine-pick" data-engine="claude" onclick="setAIEngine('claude')" style="flex:1;padding:8px;border:1.5px solid var(--border);border-radius:9px;background:var(--card);color:var(--ink2);font-weight:700;font-size:13px;cursor:pointer">Claude（較精確）</button>
+            </div>
+            <div class="gemini-key-box">
+              <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">Gemini API Key</div>
+              <div style="display:flex;gap:8px">
+                <input class="finput" type="password" id="gemini-key" placeholder="請輸入您的 Gemini API Key" style="flex:1">
+                <button class="btn btn-outline btn-sm" onclick="saveGeminiKey()">記住</button>
+              </div>
+            </div>
+            <div class="claude-key-box" style="display:none">
+              <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">Claude API Key（sk-ant-…）</div>
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <input class="finput" type="password" id="claude-key" placeholder="請輸入您的 Anthropic API Key" style="flex:1">
+                <button class="btn btn-outline btn-sm" onclick="saveClaudeKey()">記住</button>
+              </div>
+              <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">Claude 模型 ID</div>
+              <input class="finput" type="text" id="claude-model" placeholder="claude-sonnet-4-5" style="width:100%">
+              <div style="font-size:11px;color:var(--muted);margin-top:6px">若出現「model not found」，請到 console.anthropic.com 查正確模型 ID 填入（如 claude-opus-… / claude-sonnet-…）。Key 僅存本機。</div>
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:6px">Key 僅存在本機瀏覽器，不會上傳任何伺服器</div>
           </div>
@@ -2562,7 +2580,7 @@ let deriveResultData={};   // {fid: value}
 let deriveTargetFields=[]; // 此次推導的目標欄位
 
 async function showSectionDerive(sectionName){
-  const apiKey=getGeminiKey();
+  const apiKey=getActiveKey();
   if(!apiKey){toast('請先設定 Gemini API Key（在 AI 掃描病歷視窗中）');showAIScan();return;}
   const p=await dbGet('projects',PID);
   const allFields=p.fields||DEFAULT_FIELDS;
@@ -2669,7 +2687,7 @@ function setDeriveStatus(state,msg){
 }
 
 async function runDerive(){
-  const apiKey=getGeminiKey();
+  const apiKey=getActiveKey();
   if(!apiKey){toast('請先設定 Gemini API Key');return;}
 
   const p=await dbGet('projects',PID);
@@ -2721,13 +2739,7 @@ ${targetSpec}
   setDeriveStatus('loading','Gemini 正在分析欄位內容並推導…');
 
   try{
-    const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})}
-    );
-    if(!resp.ok){const err=await resp.json();throw new Error(err.error?.message||`HTTP ${resp.status}`);}
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const text=(await aiCall([{text:prompt}]))||'{}';
     const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
 
     deriveResultData={};
@@ -2994,13 +3006,7 @@ async function resolveHipecAnchor(files, apiKey){
 - 若只找到一次就回傳一筆；找不到則回傳空陣列
 - 不要其他文字、不要 markdown`});
 
-    const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
-    );
-    if(!resp.ok) return {anchor:null, cancelled:false}; // 失敗就不擋，照常掃描
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    let text; try{ text=await aiCall(parts); }catch(_){ return {anchor:null, cancelled:false}; }
     const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
     const list=(parsed.hipec_surgeries||[]).filter(x=>x&&x.date);
 
@@ -3060,7 +3066,7 @@ function showHipecAnchorPicker(list, resolve){
 }
 
 async function runFullScan(){
-  const apiKey=getGeminiKey();
+  const apiKey=getActiveKey();
   if(!apiKey){ toast('請先設定 Gemini API Key（在「📷 AI 掃描病歷」視窗中）'); return; }
 
   const picked=[...document.querySelectorAll('.full-pick-thumb.selected')]
@@ -3126,13 +3132,7 @@ ${specBySection}
 - 多個附件有同一欄位資料時，以最完整或最新的為準
 - 只回覆 JSON，不要說明文字、不要 markdown`});
 
-    const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
-    );
-    if(!resp.ok){ const err=await resp.json(); throw new Error(err.error?.message||`HTTP ${resp.status}`); }
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const text=await aiCall(parts)||'{}';
     const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
 
     fullScanResult={}; fullScanItems=[];
@@ -3228,6 +3228,85 @@ function toggleAllFullResult(on){
   document.querySelectorAll('.full-res-cb').forEach(cb=>cb.checked=on);
 }
 
+// ── 📋 貼上 Claude 聊天分析結果，直接套用（免 API 費用）──────────────
+async function showPasteApply(){
+  document.getElementById('paste-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="paste-modal" onclick="if(event.target.id==='paste-modal')document.getElementById('paste-modal').remove()">
+      <div class="modal" style="max-width:640px">
+        <div style="background:linear-gradient(135deg,var(--sage),var(--sage2));padding:20px 24px 16px;border-radius:19px 19px 0 0;color:#fff;position:relative;flex-shrink:0">
+          <div style="font-size:16px;font-weight:800;margin-bottom:4px">📋 貼上 AI 分析結果</div>
+          <div style="font-size:12px;opacity:.85">把 Claude 聊天分析好的 JSON 貼進來 → 直接套用，不呼叫任何 AI、免費用</div>
+          <button onclick="document.getElementById('paste-modal').remove()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
+        </div>
+        <div class="modal-bd">
+          <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+            在 Claude 聊天把「病歷＋這個 Project 的 JSON」給 Claude 分析，請它輸出 <strong>JSON 格式</strong>（key 用「分區::欄位名稱」或純欄位名，value 為值），貼在下方。
+          </div>
+          <textarea id="paste-json" placeholder='例：&#10;{&#10;  "手術病理分期::HIPEC_Type": "Recurrent (復發後才做)",&#10;  "手術病理分期::HIPEC_Surgery_Date": "2020-06-24",&#10;  "腫瘤指數相關::Main_Tumor markers_Pre-HIPEC level": "274.1"&#10;}' style="width:100%;min-height:160px;font-family:ui-monospace,monospace;font-size:13px;padding:11px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--ink);resize:vertical"></textarea>
+          <button class="btn btn-primary" onclick="parsePasteApply()" style="width:100%;justify-content:center;margin-top:10px">解析並預覽</button>
+          <div id="paste-status" style="display:none;margin-top:10px;padding:10px 13px;border-radius:9px;font-size:13px"></div>
+          <div id="paste-result-wrap" style="display:none;margin-top:12px">
+            <div style="font-size:13px;font-weight:800;color:var(--ink);margin-bottom:8px">📋 結果（勾選要套用的欄位）</div>
+            <div id="full-result-list" style="background:var(--card);border-radius:10px;border:1px solid var(--border2);overflow:hidden"></div>
+          </div>
+        </div>
+        <div class="modal-ft">
+          <button class="btn btn-outline" onclick="document.getElementById('paste-modal').remove()">取消</button>
+          <button class="btn btn-success" id="paste-apply-btn" onclick="applyPaste()" style="display:none">✅ 套用勾選項目</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function parsePasteApply(){
+  const raw=(document.getElementById('paste-json')?.value||'').trim();
+  const st=document.getElementById('paste-status');
+  const showErr=(m)=>{ st.style.display='';st.style.background='#FAF0EE';st.style.color='var(--red)';st.textContent='❌ '+m; };
+  if(!raw){ showErr('請先貼上 JSON'); return; }
+  let parsed;
+  try{ parsed=JSON.parse(raw.replace(/```json|```/g,'').trim()); }
+  catch(e){ showErr('JSON 格式有誤，請確認貼上的是完整的 { ... }：'+e.message); return; }
+  if(typeof parsed!=='object'||Array.isArray(parsed)){ showErr('請貼上物件格式 { "欄位":"值", ... }'); return; }
+
+  const p=await dbGet('projects',PID);
+  const allFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+  fullScanResult={}; fullScanItems=[];
+  for(const f of allFields){
+    let v=parsed[`${f.section}::${f.label}`];
+    if(v===undefined) v=parsed[f.label];
+    if(v===undefined||v===null||v===''||v==='無') continue;
+    v=String(v);
+    fullScanResult[f.id]=v;
+    const cur=formData[f.id];
+    fullScanItems.push({ field:f, section:f.section, value:v, currentVal: cur===undefined||cur===null?'':String(cur) });
+  }
+  if(!fullScanItems.length){ showErr('沒有對應到任何欄位。請確認 key 使用「分區::欄位名稱」或正確的欄位名稱'); return; }
+
+  renderFullScanResult(allFields);
+  document.getElementById('paste-result-wrap').style.display='';
+  document.getElementById('paste-apply-btn').style.display='inline-flex';
+  const ow=fullScanItems.filter(it=>it.currentVal&&it.currentVal!==it.value).length;
+  st.style.display='';st.style.background='#EEF7F4';st.style.color='var(--sage)';
+  st.textContent=`✅ 對應到 ${fullScanItems.length} 個欄位${ow?`（其中 ${ow} 個已有資料，預設不勾選）`:''}`;
+}
+
+function applyPaste(){
+  const checks=document.querySelectorAll('#paste-modal .full-res-cb:checked');
+  if(!checks.length){ toast('請至少勾選一個欄位'); return; }
+  let count=0;
+  checks.forEach(cb=>{
+    const fid=cb.dataset.fid;
+    const val=fullScanResult[fid];
+    if(val===undefined) return;
+    applyFieldValue(fid,val); count++;
+  });
+  dirty=true;
+  document.getElementById('savebar')?.classList.add('on');
+  document.getElementById('paste-modal')?.remove();
+  toast(`✅ 已套用 ${count} 個欄位，請確認後儲存`);
+}
+
 function applyFullScan(){
   const checks=document.querySelectorAll('.full-res-cb:checked');
   if(!checks.length){ toast('請至少勾選一個欄位'); return; }
@@ -3251,7 +3330,7 @@ let secScanResult = {};   // 分區掃描結果
 let secScanFields = [];   // 目前掃描的分區欄位
 
 async function showSectionAIScan(sectionName){
-  const apiKey = getGeminiKey();
+  const apiKey = getActiveKey();
   const p = await dbGet('projects', PID);
   const allFields = p.fields || DEFAULT_FIELDS;
   secScanFields = allFields.filter(f => f.section === sectionName);
@@ -3482,7 +3561,7 @@ async function runSecAIScan(){
     imgs=secScanImages.filter(Boolean);
     if(!imgs.length){ toast('請先選擇圖片'); return; }
   }
-  const apiKey=document.getElementById('sec-gemini-key')?.value.trim()||getGeminiKey();
+  const apiKey=getAIEngine()==='claude'?getClaudeKey():(document.getElementById('sec-gemini-key')?.value.trim()||getGeminiKey());
   if(!apiKey){ toast('請先輸入 Gemini API Key'); return; }
 
   const btn=document.getElementById('sec-scan-btn');
@@ -3509,13 +3588,7 @@ async function runSecAIScan(){
     const parts=filesToGeminiParts(imgs);
     parts.push({text:`${ctxPrefix}${anchorLine}你是醫療資料萃取助理。請從以上 ${imgs.length} 個附件（可能包含圖片、PDF、Word、Excel、文字檔）中，綜合所有內容，找出與下列欄位對應的資訊：\n\n${fieldList}\n\n請只回覆 JSON，key 為欄位名稱，value 為找到的資訊。沒找到的欄位不要包含。日期用 YYYY-MM-DD。若上方有「時間錨點」說明，務必依該時間點區分術前/術後數值，不要混填。select 類型只回覆選項中完全相符的值。不要 markdown。`});
 
-    const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})}
-    );
-    if(!resp.ok){ const err=await resp.json(); throw new Error(err.error?.message||`HTTP ${resp.status}`); }
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const text=await aiCall(parts)||'{}';
     const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
 
     secScanResult={};
@@ -3622,12 +3695,79 @@ function getGeminiKey(){
   return document.getElementById('gemini-key')?.value.trim() || localStorage.getItem('geminiApiKey')||'';
 }
 
+// ── 🤖 AI 引擎切換：Gemini / Claude ──────────────────────────────────
+const GEMINI_MODEL='gemini-3.1-pro-preview';
+function getAIEngine(){ return localStorage.getItem('aiEngine')||'gemini'; }
+function setAIEngine(v){ localStorage.setItem('aiEngine', v); syncEngineUI(); }
+function getClaudeKey(){ return document.getElementById('claude-key')?.value.trim() || localStorage.getItem('claudeApiKey')||''; }
+function getClaudeModel(){ return (document.getElementById('claude-model')?.value.trim()) || localStorage.getItem('claudeModel') || 'claude-sonnet-4-5'; }
+function getActiveKey(){ return getAIEngine()==='claude' ? getClaudeKey() : getGeminiKey(); }
+function activeEngineName(){ return getAIEngine()==='claude' ? 'Claude' : 'Gemini'; }
+function saveClaudeKey(){
+  const k=document.getElementById('claude-key')?.value.trim();
+  const m=document.getElementById('claude-model')?.value.trim();
+  if(k) localStorage.setItem('claudeApiKey',k);
+  if(m) localStorage.setItem('claudeModel',m);
+  toast('✅ Claude 設定已記住（存在本機）');
+}
+function loadClaudeKey(){
+  const k=localStorage.getItem('claudeApiKey')||''; const m=localStorage.getItem('claudeModel')||'';
+  const ek=document.getElementById('claude-key'); if(ek&&k) ek.value=k;
+  const em=document.getElementById('claude-model'); if(em&&m) em.value=m;
+}
+// 依目前引擎顯示/隱藏對應的 key 欄位、更新選擇器樣式
+function syncEngineUI(){
+  const eng=getAIEngine();
+  document.querySelectorAll('.engine-pick').forEach(el=>{
+    const on=el.dataset.engine===eng;
+    el.style.background=on?'var(--sage)':'var(--card)';
+    el.style.color=on?'#fff':'var(--ink2)';
+    el.style.borderColor=on?'var(--sage)':'var(--border)';
+  });
+  document.querySelectorAll('.gemini-key-box').forEach(el=>el.style.display=eng==='gemini'?'':'none');
+  document.querySelectorAll('.claude-key-box').forEach(el=>el.style.display=eng==='claude'?'':'none');
+}
+
+// 統一呼叫：傳入 gemini 格式 parts，回傳模型文字輸出（JSON字串）。依引擎路由。
+async function aiCall(parts){
+  if(getAIEngine()==='claude'){
+    const key=getClaudeKey();
+    if(!key) throw new Error('請先設定 Claude API Key');
+    const content=parts.map(p=>{
+      if(p.text!==undefined) return {type:'text',text:p.text};
+      const md=(p.inline_data||{}).mime_type||'', dat=(p.inline_data||{}).data||'';
+      if(md==='application/pdf') return {type:'document',source:{type:'base64',media_type:'application/pdf',data:dat}};
+      return {type:'image',source:{type:'base64',media_type:md,data:dat}};
+    });
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:getClaudeModel(), max_tokens:8192, messages:[{role:'user',content}]})
+    });
+    if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){}
+      throw new Error((e.error?.message||('HTTP '+resp.status))+'（Claude）'); }
+    const data=await resp.json();
+    return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('')||'{}';
+  } else {
+    const key=getGeminiKey();
+    if(!key) throw new Error('請先設定 Gemini API Key');
+    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})});
+    if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){}
+      throw new Error(e.error?.message||('HTTP '+resp.status)); }
+    const data=await resp.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+  }
+}
+
 function showAIScan(){
   const panel = document.getElementById('ai-scan-panel');
   if(panel){
     panel.style.display='';
     panel.scrollIntoView({behavior:'smooth',block:'start'});
     loadGeminiKey();
+    loadClaudeKey();
+    syncEngineUI();
   }
 }
 function hideAIScan(){
@@ -3718,7 +3858,7 @@ function setAIStatus(state,msg){
 async function startAIScan(){
   const imgs=aiImages.filter(Boolean);
   if(!imgs.length){toast('請先選擇檔案');return;}
-  const apiKey=getGeminiKey();
+  const apiKey=getActiveKey();
   if(!apiKey){toast('請先輸入 Gemini API Key');return;}
 
   const p=await dbGet('projects',PID);
@@ -3760,20 +3900,7 @@ ${fieldList}
 - select 類型請只回覆選項中完全相符的其中一個
 - 只回覆 JSON，不要其他說明文字、不要 markdown`});
 
-    const resp=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-      {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({contents:[{parts}]})
-      }
-    );
-    if(!resp.ok){
-      const err=await resp.json();
-      throw new Error(err.error?.message||`HTTP ${resp.status}`);
-    }
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const text=await aiCall(parts)||'{}';
     const clean=text.replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(clean);
 
@@ -5436,6 +5563,16 @@ async function showBatchImport(pid){
           <button onclick="closeBatch()" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
         </div>
         <div class="modal-bd">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:700;color:var(--muted)">辨識引擎：</span>
+            <button class="engine-pick" data-engine="gemini" onclick="setAIEngine('gemini')" style="padding:5px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--card);color:var(--ink2);font-weight:700;font-size:12px;cursor:pointer">Gemini</button>
+            <button class="engine-pick" data-engine="claude" onclick="setAIEngine('claude')" style="padding:5px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--card);color:var(--ink2);font-weight:700;font-size:12px;cursor:pointer">Claude（較精確）</button>
+            <span class="gemini-key-box" style="font-size:11px;color:var(--muted)">（Gemini key 在「AI 掃描病歷」視窗設定）</span>
+            <div class="claude-key-box" style="display:none;flex:1;min-width:200px;gap:6px">
+              <input class="finput" type="password" id="claude-key-b" placeholder="Claude API Key" oninput="localStorage.setItem('claudeApiKey',this.value.trim())" style="flex:1;font-size:12px;padding:5px 8px">
+              <input class="finput" type="text" id="claude-model-b" placeholder="claude-sonnet-4-5" oninput="localStorage.setItem('claudeModel',this.value.trim())" style="width:150px;font-size:12px;padding:5px 8px">
+            </div>
+          </div>
           <div style="font-size:12px;font-weight:800;color:var(--sage);letter-spacing:.5px;margin-bottom:8px">① 上傳所有病人的檔案</div>
           <div id="batch-upload" onclick="document.getElementById('batch-file-input').click()"
             ondragover="event.preventDefault();this.style.background='var(--sage-light)'" ondragleave="this.style.background='var(--cream)'"
@@ -5473,6 +5610,9 @@ async function showBatchImport(pid){
         </div>
       </div>
     </div>`);
+  const bk=document.getElementById('claude-key-b'); if(bk) bk.value=localStorage.getItem('claudeApiKey')||'';
+  const bm=document.getElementById('claude-model-b'); if(bm) bm.value=localStorage.getItem('claudeModel')||'';
+  syncEngineUI();
 }
 function closeBatch(){ document.getElementById('batch-modal')?.remove(); batchFiles=[]; batchGroups=[]; }
 
@@ -5515,7 +5655,7 @@ function setBatchStatus(state,msg){
 
 // ① 辨識每個檔案的病歷號+姓名 → 分組
 async function batchIdentify(){
-  const apiKey=getGeminiKey();
+  const apiKey=getActiveKey();
   if(!apiKey){ toast('請先設定 Gemini API Key（在任一病例的「AI 掃描病歷」視窗中輸入過即可）'); return; }
   if(!batchFiles.length){ toast('請先上傳檔案'); return; }
   const btn=document.getElementById('batch-identify-btn');
@@ -5530,11 +5670,7 @@ async function batchIdentify(){
 - 病歷號通常是一串數字；姓名是中文
 - 若某附件找不到病歷號或姓名，該欄填空字串
 - 只回覆 JSON，不要說明文字、不要 markdown`});
-    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})});
-    if(!resp.ok){ const e=await resp.json(); throw new Error(e.error?.message||`HTTP ${resp.status}`); }
-    const data=await resp.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'[]';
+    const text=await aiCall(parts)||'[]';
     const arr=JSON.parse(text.replace(/```json|```/g,'').trim());
     // 填回 batchFiles
     for(const r of arr){
@@ -5593,8 +5729,7 @@ function renderBatchGroups(){
 
 // ② 逐位病人掃描
 async function batchScan(){
-  const apiKey=getGeminiKey();
-  window.__batchPct=0;
+  const apiKey=getActiveKey();
   if(!apiKey){ toast('請先設定 API Key'); return; }
   if(!batchGroups.length){ toast('沒有可掃描的病人'); return; }
   const p=await dbGet('projects',batchPID);
@@ -5649,11 +5784,7 @@ ${specBySection}
 
 請以 JSON 回覆：key 必須完全用引號中的「分區::欄位名稱」字串，value 為找到的內容。
 規則：沒找到的欄位省略該 key；日期用 YYYY-MM-DD；select 只回覆可選值中完全相符者；multiselect 多值用 | 分隔；只回覆 JSON、不要 markdown。`});
-      const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`,
-        {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts}]})});
-      if(!resp.ok){ const e=await resp.json(); throw new Error(e.error?.message||`HTTP ${resp.status}`); }
-      const data=await resp.json();
-      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+      const text=await aiCall(parts)||'{}';
       const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
       const results={};
       for(const f of targetFields){

@@ -1656,6 +1656,7 @@ async function vCase(){
     <button class="btn btn-ghost" onclick="showFullScan()" title="用暫存區檔案，一次掃描所有分區的欄位">🚀 全區 AI 掃描</button>
     <button class="btn btn-ghost" onclick="showAIScan()" title="拍照上傳病歷，AI自動填入欄位">📷 AI 掃描病歷</button>
     <button class="btn btn-ghost" onclick="showPasteApply()" title="貼上 Claude 聊天分析的結果（JSON），直接套用、免 API 費用">📋 貼上 AI 分析</button>
+    <button class="btn btn-ghost" onclick="showCaseReasons()" title="查看這筆病例各欄位的 AI 判讀理由">💬 判讀理由</button>
     <button class="btn btn-ghost" onclick="showCopyToProject('${c.id}')" title="把這位病人的資料複製到其他 Project（同名欄位）">📋 複製到其他 Project</button>
     <button class="btn btn-danger btn-sm" onclick="delCase('${c.id}')">🗑️ 刪除</button>
     <button class="btn btn-success" onclick="saveCase()">💾 儲存</button>`;
@@ -3308,17 +3309,89 @@ async function parsePasteApply(){
 function applyPaste(){
   const checks=document.querySelectorAll('#paste-modal .full-res-cb:checked');
   if(!checks.length){ toast('請至少勾選一個欄位'); return; }
+  // fid → reason 對照（來自 fullScanItems）
+  const reasonByFid={};
+  fullScanItems.forEach(it=>{ if(it.reason) reasonByFid[it.field.id]=it.reason; });
   let count=0;
+  if(!formData.__reasons || typeof formData.__reasons!=='object') formData.__reasons={};
   checks.forEach(cb=>{
     const fid=cb.dataset.fid;
     const val=fullScanResult[fid];
     if(val===undefined) return;
     applyFieldValue(fid,val); count++;
+    // 存判讀理由（含時間戳），日後可回想
+    if(reasonByFid[fid]){
+      formData.__reasons[fid]={ reason:reasonByFid[fid], at:Date.now() };
+    }
   });
   dirty=true;
   document.getElementById('savebar')?.classList.add('on');
   document.getElementById('paste-modal')?.remove();
-  toast(`✅ 已套用 ${count} 個欄位，請確認後儲存`);
+  toast(`✅ 已套用 ${count} 個欄位，判讀理由已記錄，請確認後儲存`);
+}
+
+// ── 💬 檢視本病例各欄位的判讀理由 ──────────────────────────────────
+async function showCaseReasons(){
+  const reasons=formData.__reasons||{};
+  const keys=Object.keys(reasons);
+  const p=await dbGet('projects',PID);
+  const allFields=getOrderedFields(p.fields||DEFAULT_FIELDS);
+  const fmap={}; allFields.forEach(f=>fmap[f.id]=f);
+  document.getElementById('reason-modal')?.remove();
+
+  let body;
+  if(!keys.length){
+    body=`<div style="text-align:center;padding:30px 20px;color:var(--muted)">
+      <div style="font-size:30px;margin-bottom:10px;opacity:.4">💬</div>
+      <div style="font-size:14px;font-weight:600">這筆病例還沒有記錄判讀理由</div>
+      <div style="font-size:12px;margin-top:6px">用「📋 貼上 AI 分析」套用含 reason 的結果後，理由會自動記錄在這裡</div>
+    </div>`;
+  } else {
+    // 依分區分組
+    const bySec={};
+    keys.forEach(fid=>{ const f=fmap[fid]; const sec=f?f.section:'（已刪除欄位）'; (bySec[sec]??=[]).push(fid); });
+    body=Object.keys(bySec).map(sec=>{
+      const color=allFields.find(f=>f.section===sec)?.sectionColor||'#3E7265';
+      return `<div style="padding:7px 14px;background:${color}12;border-bottom:1px solid ${color}25;font-size:11px;font-weight:800;color:${color};letter-spacing:.5px">${escH(sec)}</div>`+
+      bySec[sec].map(fid=>{
+        const f=fmap[fid]; const r=reasons[fid]||{};
+        const curVal=formData[fid];
+        const when=r.at? new Date(r.at).toLocaleDateString('zh-TW') : '';
+        return `<div style="padding:11px 14px;border-bottom:1px solid var(--border2)">
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:700;color:var(--ink)">${escH(f?f.label:fid)}</span>
+            <span style="font-size:13px;color:var(--sage);font-weight:700">${escH(curVal!==undefined&&curVal!==null?String(curVal).replace(/\|/g,'、'):'（已清空）')}</span>
+            ${when?`<span style="font-size:10px;color:var(--muted);margin-left:auto">${when}</span>`:''}
+          </div>
+          <div style="font-size:12px;color:var(--ink2);line-height:1.6;background:var(--sage-light);border-radius:7px;padding:7px 10px">${escH(r.reason||'')}</div>
+        </div>`;
+      }).join('');
+    }).join('');
+  }
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <div class="overlay" id="reason-modal" onclick="if(event.target.id==='reason-modal')document.getElementById('reason-modal').remove()">
+      <div class="modal" style="max-width:600px">
+        <div style="background:linear-gradient(135deg,var(--sage),var(--sage2));padding:18px 22px 14px;border-radius:19px 19px 0 0;color:#fff;position:relative;flex-shrink:0">
+          <div style="font-size:16px;font-weight:800">💬 判讀理由</div>
+          <div style="font-size:12px;opacity:.85;margin-top:3px">${keys.length} 個欄位有記錄 · 幫助回想當初為何這樣判</div>
+          <button onclick="document.getElementById('reason-modal').remove()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:5px 10px;font-size:13px;cursor:pointer">✕</button>
+        </div>
+        <div class="modal-bd" style="padding:0">${body}</div>
+        <div class="modal-ft">
+          ${keys.length?`<button class="btn btn-danger btn-sm" onclick="clearCaseReasons()">清除全部理由</button>`:''}
+          <button class="btn btn-outline" onclick="document.getElementById('reason-modal').remove()">關閉</button>
+        </div>
+      </div>
+    </div>`);
+}
+function clearCaseReasons(){
+  if(!confirm('確定清除這筆病例所有欄位的判讀理由？（不影響欄位值）')) return;
+  formData.__reasons={};
+  dirty=true;
+  document.getElementById('savebar')?.classList.add('on');
+  document.getElementById('reason-modal')?.remove();
+  toast('已清除判讀理由，請記得儲存');
 }
 
 function applyFullScan(){
